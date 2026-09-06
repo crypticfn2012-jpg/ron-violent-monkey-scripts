@@ -1,9 +1,9 @@
-
+```javascript
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
 // @namespace    https://ron.cool/
-// @version      4.4.0
-// @description  Lightweight ad blocker for BuildNow.GG and the web
+// @version      4.5.0
+// @description  Aggressive ad blocker for BuildNow.GG and other websites
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
 // @match        *://*/*
@@ -19,14 +19,20 @@
 (() => {
     'use strict';
 
-    if (window.__RON_AD_BLOCKER__) return;
-    window.__RON_AD_BLOCKER__ = true;
+    if (window.__RON_AD_KILLER__) return;
+    window.__RON_AD_KILLER__ = true;
 
-    const isBuildNow =
+    const BUILDNOW =
         location.hostname === 'buildnow.gg' ||
         location.hostname.endsWith('.buildnow.gg');
 
-    const BLOCKED_DOMAINS = [
+    /*
+     * ============================================================
+     * NETWORK BLOCKLIST
+     * ============================================================
+     */
+
+    const AD_HOSTS = new Set([
         'doubleclick.net',
         'googlesyndication.com',
         'googleadservices.com',
@@ -57,21 +63,46 @@
         'triplelift.com',
         'yieldmo.com',
         'sovrn.com',
-        'media.net'
+        'media.net',
+        'adroll.com',
+        'revcontent.com',
+        'sharethrough.com',
+        'spotx.tv',
+        'spotxchange.com',
+        'bidvertiser.com',
+        'propellerads.com',
+        'popads.net',
+        'popcash.net',
+        'exoclick.com',
+        'juicyads.com'
+    ]);
+
+    /*
+     * These are URL patterns, NOT generic "contains ad".
+     * This is important because BuildNow has legitimate files
+     * which may contain words such as "data", "shader", etc.
+     */
+
+    const AD_URL_PATTERNS = [
+        /\/ads?\//i,
+        /\/ads?\./i,
+        /\/adserver(?:\/|\.|$)/i,
+        /\/adservice(?:\/|\.|$)/i,
+        /\/adsystem(?:\/|\.|$)/i,
+        /\/advertising(?:\/|\.|$)/i,
+        /\/advertisement(?:\/|\.|$)/i,
+        /\/interstitial(?:\/|\.|$)/i,
+        /\/popunder(?:\/|\.|$)/i,
+        /\/adframe(?:\/|\.|$)/i,
+        /\/adunit(?:\/|\.|$)/i,
+        /\/adtag(?:\/|\.|$)/i,
+        /\/adrequest(?:\/|\.|$)/i,
+        /\/adloader(?:\/|\.|$)/i,
+        /\/admanager(?:\/|\.|$)/i,
+        /[?&](?:adunit|adslot|adtag|adserver|adformat)=/i
     ];
 
-    const BLOCKED_PATHS = [
-        '/ads/',
-        '/adserver/',
-        '/adservice/',
-        '/adsystem/',
-        '/advertising/',
-        '/advertisement/',
-        '/interstitial/',
-        '/popunder/'
-    ];
-
-    function getURL(value) {
+    function urlOf(value) {
         try {
             if (!value) return '';
 
@@ -90,58 +121,79 @@
                 return value.url;
             }
 
-            if (typeof value.url === 'string') {
-                return value.url;
+            if (value.url) {
+                return String(value.url);
             }
         } catch {}
 
         return '';
     }
 
-    function isBlocked(url) {
-        const raw = getURL(url);
+    function isAdURL(value) {
+        const raw = urlOf(value);
 
-        if (!raw) return false;
+        if (!raw) {
+            return false;
+        }
 
-        let parsed;
+        let url;
 
         try {
-            parsed = new URL(raw, location.href);
+            url = new URL(raw, location.href);
         } catch {
             return false;
         }
 
-        const hostname = parsed.hostname.toLowerCase();
-        const path = parsed.pathname.toLowerCase();
+        const host = url.hostname.toLowerCase();
+        const full = `${url.pathname}${url.search}`.toLowerCase();
 
-        for (const domain of BLOCKED_DOMAINS) {
+        /*
+         * Exact ad-network / subdomain check.
+         */
+
+        for (const domain of AD_HOSTS) {
             if (
-                hostname === domain ||
-                hostname.endsWith('.' + domain)
+                host === domain ||
+                host.endsWith('.' + domain)
             ) {
                 return true;
             }
         }
 
-        for (const blockedPath of BLOCKED_PATHS) {
-            if (path.includes(blockedPath)) {
-                return true;
-            }
-        }
+        /*
+         * Specific ad URL patterns.
+         */
 
-        return false;
+        return AD_URL_PATTERNS.some(
+            pattern => pattern.test(full)
+        );
     }
 
-    if (typeof window.fetch === 'function') {
-        const originalFetch = window.fetch;
+    function blocked(type, url) {
+        if (BUILDNOW || type !== 'unknown') {
+            console.debug(
+                `%c[RON] blocked ${type}`,
+                'color:#a855f7;font-weight:bold',
+                url
+            );
+        }
+    }
 
+    /*
+     * ============================================================
+     * FETCH
+     * ============================================================
+     */
+
+    if (typeof window.fetch === 'function') {
         try {
+            const nativeFetch = window.fetch;
+
             window.fetch = function(input, init) {
-                if (isBlocked(input)) {
-                    console.debug(
-                        '[RON] blocked fetch:',
-                        getURL(input)
-                    );
+                const url = urlOf(input);
+
+                if (isAdURL(url)) {
+                    blocked('fetch', url);
 
                     return Promise.reject(
                         new DOMException(
@@ -151,7 +203,7 @@
                     );
                 }
 
-                return originalFetch.call(
+                return nativeFetch.call(
                     this,
                     input,
                     init
@@ -160,28 +212,37 @@
         } catch {}
     }
 
-    if (typeof XMLHttpRequest !== 'undefined') {
+    /*
+     * ============================================================
+     * XHR
+     * ============================================================
+     */
+
+    if (
+        typeof XMLHttpRequest !== 'undefined'
+    ) {
         try {
-            const originalOpen =
+            const nativeOpen =
                 XMLHttpRequest.prototype.open;
 
-            const originalSend =
+            const nativeSend =
                 XMLHttpRequest.prototype.send;
 
             XMLHttpRequest.prototype.open =
                 function(method, url) {
+                    this.__RON_AD_BLOCKED__ =
+                        isAdURL(url);
 
-                    this.__RON_BLOCKED =
-                        isBlocked(url);
-
-                    if (this.__RON_BLOCKED) {
-                        console.debug(
-                            '[RON] blocked XHR:',
-                            getURL(url)
+                    if (
+                        this.__RON_AD_BLOCKED__
+                    ) {
+                        blocked(
+                            'XHR',
+                            urlOf(url)
                         );
                     }
 
-                    return originalOpen.apply(
+                    return nativeOpen.apply(
                         this,
                         arguments
                     );
@@ -189,8 +250,9 @@
 
             XMLHttpRequest.prototype.send =
                 function() {
-
-                    if (this.__RON_BLOCKED) {
+                    if (
+                        this.__RON_AD_BLOCKED__
+                    ) {
                         try {
                             this.abort();
                         } catch {}
@@ -198,7 +260,7 @@
                         return;
                     }
 
-                    return originalSend.apply(
+                    return nativeSend.apply(
                         this,
                         arguments
                     );
@@ -206,26 +268,34 @@
         } catch {}
     }
 
+    /*
+     * ============================================================
+     * SEND BEACON
+     * ============================================================
+     */
+
     if (
-        typeof navigator.sendBeacon === 'function'
+        typeof navigator.sendBeacon ===
+        'function'
     ) {
         try {
-            const originalBeacon =
-                navigator.sendBeacon.bind(navigator);
+            const nativeBeacon =
+                navigator.sendBeacon.bind(
+                    navigator
+                );
 
             navigator.sendBeacon =
                 function(url, data) {
-
-                    if (isBlocked(url)) {
-                        console.debug(
-                            '[RON] blocked beacon:',
-                            getURL(url)
+                    if (isAdURL(url)) {
+                        blocked(
+                            'beacon',
+                            urlOf(url)
                         );
 
                         return false;
                     }
 
-                    return originalBeacon(
+                    return nativeBeacon(
                         url,
                         data
                     );
@@ -233,30 +303,70 @@
         } catch {}
     }
 
+    /*
+     * ============================================================
+     * POPUPS
+     * ============================================================
+     */
+
     if (typeof window.open === 'function') {
         try {
-            const originalOpen =
+            const nativeOpen =
                 window.open.bind(window);
 
             window.open =
                 function(url, ...args) {
-
-                    if (isBlocked(url)) {
-                        console.debug(
-                            '[RON] blocked popup:',
-                            getURL(url)
+                    if (isAdURL(url)) {
+                        blocked(
+                            'popup',
+                            urlOf(url)
                         );
 
                         return null;
                     }
 
-                    return originalOpen(
+                    return nativeOpen(
                         url,
                         ...args
                     );
                 };
         } catch {}
     }
+
+    /*
+     * ============================================================
+     * LOCATION REDIRECT PROTECTION
+     * ============================================================
+     */
+
+    document.addEventListener(
+        'click',
+        event => {
+            const link =
+                event.target?.closest?.(
+                    'a[href]'
+                );
+
+            if (!link) return;
+
+            if (isAdURL(link.href)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+
+                blocked(
+                    'link',
+                    link.href
+                );
+            }
+        },
+        true
+    );
+
+    /*
+     * ============================================================
+     * DOM AD SELECTORS
+     * ============================================================
+     */
 
     const AD_SELECTORS = [
         'ins.adsbygoogle',
@@ -267,29 +377,56 @@
         '[data-ad-format]',
         '[data-advertisement]',
         '[aria-label="advertisement" i]',
-        '[aria-label="sponsored" i]'
+        '[aria-label="sponsored" i]',
+
+        /*
+         * Explicit ad/interstitial names only.
+         */
+
+        '[id="ad-container"]',
+        '[id="adcontainer"]',
+        '[id="advertisement"]',
+        '[id="interstitial"]',
+        '[id="popunder"]',
+
+        '[class="ad-container"]',
+        '[class="adcontainer"]',
+        '[class="advertisement"]',
+        '[class="interstitial"]',
+        '[class="popunder"]'
     ];
 
-    function removeAds(root = document) {
-        if (!root.querySelectorAll) return;
+    function removeAds(root) {
+        if (!root?.querySelectorAll) {
+            return;
+        }
 
         for (const selector of AD_SELECTORS) {
             try {
                 root
                     .querySelectorAll(selector)
                     .forEach(element => {
-                        element.remove();
-
-                        console.debug(
-                            '[RON] removed ad element'
+                        blocked(
+                            'element',
+                            selector
                         );
+
+                        element.remove();
                     });
             } catch {}
         }
     }
 
-    function checkElement(element) {
-        if (!(element instanceof Element)) {
+    /*
+     * ============================================================
+     * RESOURCE ELEMENTS
+     * ============================================================
+     */
+
+    function inspectResource(element) {
+        if (
+            !(element instanceof Element)
+        ) {
             return;
         }
 
@@ -299,9 +436,12 @@
             element.data ||
             '';
 
-        if (url && isBlocked(url)) {
-            console.debug(
-                '[RON] removed blocked resource:',
+        if (
+            url &&
+            isAdURL(url)
+        ) {
+            blocked(
+                'resource',
                 url
             );
 
@@ -309,78 +449,191 @@
         }
     }
 
+    /*
+     * ============================================================
+     * MUTATION OBSERVER
+     * ============================================================
+     */
+
     let observer;
 
     try {
-        observer = new MutationObserver(
-            mutations => {
-
-                for (const mutation of mutations) {
-
-                    for (const node of mutation.addedNodes) {
-
-                        if (
-                            node.nodeType !==
-                            Node.ELEMENT_NODE
+        observer =
+            new MutationObserver(
+                mutations => {
+                    for (
+                        const mutation
+                        of mutations
+                    ) {
+                        for (
+                            const node
+                            of mutation.addedNodes
                         ) {
-                            continue;
-                        }
-
-                        checkElement(node);
-                        removeAds(node);
-
-                        try {
-                            if (node.shadowRoot) {
-                                removeAds(
-                                    node.shadowRoot
-                                );
-
-                                observer.observe(
-                                    node.shadowRoot,
-                                    {
-                                        childList: true,
-                                        subtree: true
-                                    }
-                                );
+                            if (
+                                node.nodeType !==
+                                Node.ELEMENT_NODE
+                            ) {
+                                continue;
                             }
-                        } catch {}
+
+                            inspectResource(node);
+                            removeAds(node);
+
+                            /*
+                             * Inspect dynamically-created
+                             * resources inside the node.
+                             */
+
+                            try {
+                                node
+                                    .querySelectorAll(
+                                        'iframe,script,img,link,video,audio,source,object,embed'
+                                    )
+                                    .forEach(
+                                        inspectResource
+                                    );
+                            } catch {}
+
+                            /*
+                             * Shadow DOM.
+                             */
+
+                            try {
+                                if (
+                                    node.shadowRoot
+                                ) {
+                                    removeAds(
+                                        node.shadowRoot
+                                    );
+
+                                    observer.observe(
+                                        node.shadowRoot,
+                                        {
+                                            childList: true,
+                                            subtree: true
+                                        }
+                                    );
+                                }
+                            } catch {}
+                        }
                     }
                 }
-            }
-        );
+            );
     } catch {}
 
-    document.addEventListener(
-        'click',
-        event => {
+    /*
+     * ============================================================
+     * EARLY DOM HOOK
+     * ============================================================
+     *
+     * This catches ad elements created through JS before the
+     * MutationObserver gets a chance to process them.
+     */
 
-            const link =
-                event.target?.closest?.(
-                    'a[href]'
+    try {
+        const nativeAppendChild =
+            Node.prototype.appendChild;
+
+        Node.prototype.appendChild =
+            function(node) {
+                if (
+                    node instanceof Element
+                ) {
+                    inspectResource(node);
+                    removeAds(node);
+
+                    /*
+                     * Don't stop legitimate elements.
+                     * Only stop the element if it was actually
+                     * identified as an ad and removed.
+                     */
+
+                    if (
+                        !node.parentNode &&
+                        isAdURL(
+                            node.src ||
+                            node.href ||
+                            node.data
+                        )
+                    ) {
+                        return node;
+                    }
+                }
+
+                return nativeAppendChild.call(
+                    this,
+                    node
                 );
+            };
+    } catch {}
 
-            if (!link) return;
+    /*
+     * ============================================================
+     * CSS COSMETIC FILTER
+     * ============================================================
+     */
 
-            if (isBlocked(link.href)) {
+    function installCSS() {
+        if (
+            document.getElementById(
+                'ron-ad-killer-css'
+            )
+        ) {
+            return;
+        }
 
-                event.preventDefault();
-                event.stopImmediatePropagation();
+        const style =
+            document.createElement('style');
 
-                console.debug(
-                    '[RON] blocked ad link:',
-                    link.href
-                );
+        style.id =
+            'ron-ad-killer-css';
+
+        style.textContent = `
+            ins.adsbygoogle,
+            .adsbygoogle,
+            [data-ad-slot],
+            [data-ad-client],
+            [data-ad-unit],
+            [data-ad-format],
+            [data-advertisement],
+            [aria-label="advertisement" i],
+            [aria-label="sponsored" i],
+            #ad-container,
+            #adcontainer,
+            #advertisement,
+            #interstitial,
+            #popunder,
+            .ad-container,
+            .adcontainer,
+            .advertisement,
+            .interstitial,
+            .popunder {
+                display: none !important;
+                visibility: hidden !important;
+                pointer-events: none !important;
             }
-        },
-        true
-    );
+        `;
+
+        (
+            document.head ||
+            document.documentElement
+        )?.appendChild(style);
+    }
+
+    /*
+     * ============================================================
+     * STARTUP
+     * ============================================================
+     */
 
     function start() {
+        installCSS();
+        removeAds(document);
 
-        removeAds();
-
-        if (observer && document.documentElement) {
-
+        if (
+            observer &&
+            document.documentElement
+        ) {
             observer.observe(
                 document.documentElement,
                 {
@@ -394,19 +647,19 @@
     if (document.documentElement) {
         start();
     } else {
-
-        const bootObserver =
+        const boot =
             new MutationObserver(() => {
-
-                if (!document.documentElement) {
+                if (
+                    !document.documentElement
+                ) {
                     return;
                 }
 
-                bootObserver.disconnect();
+                boot.disconnect();
                 start();
             });
 
-        bootObserver.observe(
+        boot.observe(
             document,
             {
                 childList: true,
@@ -415,18 +668,23 @@
         );
     }
 
-    if (isBuildNow) {
+    /*
+     * ============================================================
+     * BUILDNOW
+     * ============================================================
+     */
 
+    if (BUILDNOW) {
         setInterval(() => {
-            removeAds();
-        }, 1000);
+            removeAds(document);
+            installCSS();
+        }, 750);
 
         console.log(
-            '%cRON%c BuildNow Ad Killer 4.3.0 ACTIVE',
+            '%cRON%c BuildNow Ad Killer 4.4.0 ACTIVE',
             'font-weight:900;color:#8b5cf6',
             ''
         );
     }
-
 })();
-
+```

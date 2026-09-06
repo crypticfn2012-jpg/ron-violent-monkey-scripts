@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
 // @namespace    https://ron.cool/
-// @version      4.2.1
-// @description  Block advertising requests, popups, and injected ad containers
+// @version      4.3.0
+// @description  Aggressive ad, popup, tracking and injected-ad blocker for BuildNow.GG and other websites
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
 // @match        *://*/*
@@ -18,8 +18,12 @@
 (() => {
     'use strict';
 
-    if (window.__RON_AD_BLOCKER__) return;
-    window.__RON_AD_BLOCKER__ = true;
+    if (window.__RON_AD_KILLER__) return;
+    window.__RON_AD_KILLER__ = true;
+
+    const IS_BUILDNOW =
+        location.hostname === 'buildnow.gg' ||
+        location.hostname.endsWith('.buildnow.gg');
 
     const BLOCKED_HOSTS = new Set([
         'doubleclick.net',
@@ -27,10 +31,23 @@
         'googleadservices.com',
         'googletagservices.com',
         'googletagmanager.com',
-        'adnxs.com',
+        'google-analytics.com',
+        'analytics.google.com',
+        'adservice.google.com',
+
         'amazon-adsystem.com',
+        'aax.amazon-adsystem.com',
+
+        'bat.bing.com',
+
+        'an.facebook.com',
+        'connect.facebook.net',
+
+        'adnxs.com',
+        'adsrvr.org',
         'adform.net',
         'criteo.com',
+        'criteo.net',
         'outbrain.com',
         'taboola.com',
         'pubmatic.com',
@@ -40,43 +57,358 @@
         'smartadserver.com',
         'teads.tv',
         'mgid.com',
+        '33across.com',
+        'appnexus.com',
+        'casalemedia.com',
+        'contextweb.com',
+        'indexexchange.com',
+        'lijit.com',
+        'sharethrough.com',
+        'sonobi.com',
+        'triplelift.com',
+        'yieldmo.com',
+        'sovrn.com',
+        'media.net',
+
+        'unityads.unity3d.com',
+        'ads.unity.com',
+        'unity3d.com',
+
         'berht-shv.com',
         'studiowatersolutions.com'
     ]);
 
     const BLOCKED_URL_PARTS = [
-        'advertisement',
-        'advertising',
+        '/ads/',
+        '/ads.',
+        '/ad/',
+        '/ad.',
+        '/advert/',
+        '/advertising/',
+        '/advertisement/',
+        '/adserver/',
+        '/adservice/',
+        '/adsystem/',
+        '/adframe/',
+        '/adiframe/',
+        '/adtag/',
+        '/adunit/',
+        '/adloader/',
+        '/admanager/',
+        '/adrequest/',
+        '/adrequest.',
+        '/adcall/',
+        '/adcall.',
+        'googlesyndication',
+        'doubleclick',
+        'googleadservices',
+        'amazon-adsystem',
         'adserver',
         'adservice',
         'adsystem',
-        'doubleclick',
-        'googlesyndication',
-        'googleadservices',
-        'amazon-adsystem'
+        'advertising',
+        'advertisement',
+        'interstitial',
+        'popunder',
+        'pop-up-ad',
+        'popup-ad'
     ];
 
-    const BLOCKED_SELECTORS = [
+    function getURL(value) {
+        try {
+            if (!value) return '';
+
+            if (typeof value === 'string') {
+                return value;
+            }
+
+            if (value instanceof URL) {
+                return value.href;
+            }
+
+            if (typeof Request !== 'undefined' && value instanceof Request) {
+                return value.url;
+            }
+
+            if (typeof value === 'object' && value.url) {
+                return String(value.url);
+            }
+
+            return '';
+        } catch {
+            return '';
+        }
+    }
+
+    function isBlockedURL(value) {
+        const raw = getURL(value);
+
+        if (!raw) {
+            return false;
+        }
+
+        let url;
+
+        try {
+            url = new URL(raw, location.href);
+        } catch {
+            return false;
+        }
+
+        const hostname = url.hostname.toLowerCase();
+        const path = url.pathname.toLowerCase();
+        const search = url.search.toLowerCase();
+
+        for (const host of BLOCKED_HOSTS) {
+            if (
+                hostname === host ||
+                hostname.endsWith('.' + host)
+            ) {
+                return true;
+            }
+        }
+
+        const combined = `${path}${search}`;
+
+        for (const part of BLOCKED_URL_PARTS) {
+            if (combined.includes(part)) {
+                return true;
+            }
+        }
+
+        const adParams = [
+            'adunit',
+            'ad_unit',
+            'adslot',
+            'ad_slot',
+            'adtag',
+            'ad_tag',
+            'adserver',
+            'adformat',
+            'ad_format',
+            'advertiser',
+            'interstitial'
+        ];
+
+        for (const param of adParams) {
+            if (
+                search.includes(`?${param}=`) ||
+                search.includes(`&${param}=`)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    let blockedCount = 0;
+
+    function blockedLog(type, url) {
+        blockedCount++;
+
+        if (IS_BUILDNOW) {
+            console.debug(
+                `[RON] blocked ${type}:`,
+                url
+            );
+        }
+    }
+
+    const nativeFetch = window.fetch;
+
+    if (typeof nativeFetch === 'function') {
+        try {
+            window.fetch = function(input, init) {
+                if (isBlockedURL(input)) {
+                    blockedLog('fetch', getURL(input));
+
+                    return Promise.reject(
+                        new DOMException(
+                            'Blocked by Ron | BuildNow Ad Killer',
+                            'AbortError'
+                        )
+                    );
+                }
+
+                return nativeFetch.call(
+                    this,
+                    input,
+                    init
+                );
+            };
+        } catch {}
+    }
+
+    if (typeof XMLHttpRequest !== 'undefined') {
+        try {
+            const nativeOpen =
+                XMLHttpRequest.prototype.open;
+
+            const nativeSend =
+                XMLHttpRequest.prototype.send;
+
+            XMLHttpRequest.prototype.open =
+                function(method, url) {
+                    this.__RON_BLOCKED =
+                        isBlockedURL(url);
+
+                    if (this.__RON_BLOCKED) {
+                        blockedLog(
+                            'XHR',
+                            getURL(url)
+                        );
+                    }
+
+                    return nativeOpen.apply(
+                        this,
+                        arguments
+                    );
+                };
+
+            XMLHttpRequest.prototype.send =
+                function() {
+                    if (this.__RON_BLOCKED) {
+                        try {
+                            this.abort();
+                        } catch {}
+
+                        return;
+                    }
+
+                    return nativeSend.apply(
+                        this,
+                        arguments
+                    );
+                };
+        } catch {}
+    }
+
+    if (
+        navigator.sendBeacon &&
+        typeof navigator.sendBeacon === 'function'
+    ) {
+        try {
+            const nativeBeacon =
+                navigator.sendBeacon.bind(navigator);
+
+            navigator.sendBeacon =
+                function(url, data) {
+                    if (isBlockedURL(url)) {
+                        blockedLog(
+                            'beacon',
+                            getURL(url)
+                        );
+
+                        return false;
+                    }
+
+                    return nativeBeacon(
+                        url,
+                        data
+                    );
+                };
+        } catch {}
+    }
+
+    if (typeof window.open === 'function') {
+        try {
+            const nativeOpen =
+                window.open.bind(window);
+
+            window.open =
+                function(url, ...args) {
+                    if (isBlockedURL(url)) {
+                        blockedLog(
+                            'popup',
+                            getURL(url)
+                        );
+
+                        return null;
+                    }
+
+                    return nativeOpen(
+                        url,
+                        ...args
+                    );
+                };
+        } catch {}
+    }
+
+    document.addEventListener(
+        'click',
+        event => {
+            const target =
+                event.target?.closest?.(
+                    'a[href]'
+                );
+
+            if (!target) return;
+
+            if (isBlockedURL(target.href)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+
+                blockedLog(
+                    'link',
+                    target.href
+                );
+            }
+        },
+        true
+    );
+
+    function elementURL(element) {
+        if (!element) return '';
+
+        return (
+            element.src ||
+            element.href ||
+            element.data ||
+            element.action ||
+            element.getAttribute?.('src') ||
+            element.getAttribute?.('href') ||
+            ''
+        );
+    }
+
+    const AD_SELECTORS = [
         'ins.adsbygoogle',
         '.adsbygoogle',
+
         '[data-ad-slot]',
         '[data-ad-client]',
+        '[data-ad-unit]',
         '[data-ad-format]',
+        '[data-advertisement]',
+
+        '[id="ad"]',
+        '[id^="ad-"]',
+        '[id^="ad_"]',
+        '[id*="-ad-"]',
+        '[id*="_ad_"]',
         '[id*="ad-container" i]',
         '[id*="adcontainer" i]',
         '[id*="advertisement" i]',
+        '[id*="interstitial" i]',
+        '[id*="popunder" i]',
+
+        '[class="ad"]',
+        '[class^="ad-"]',
+        '[class^="ad_"]',
+        '[class*="-ad-"]',
+        '[class*="_ad_"]',
         '[class*="ad-container" i]',
         '[class*="adcontainer" i]',
         '[class*="advertisement" i]',
         '[class*="interstitial" i]',
-        '[id*="interstitial" i]',
         '[class*="popunder" i]',
-        '[id*="popunder" i]',
+
         '[aria-label*="advertisement" i]',
         '[aria-label*="sponsored" i]'
     ];
 
-    const BLOCKED_RESOURCE_SELECTORS = [
+    const RESOURCE_ELEMENTS = [
         'iframe',
         'script',
         'img',
@@ -88,244 +420,417 @@
         'object'
     ];
 
-    function getURL(value) {
-        if (!value) return '';
-
-        try {
-            if (typeof value === 'string' || value instanceof URL) {
-                return String(value);
-            }
-
-            return value.url || '';
-        } catch {
-            return '';
-        }
-    }
-
-    function blocked(url) {
-        const rawURL = getURL(url);
-        if (!rawURL) return false;
-
-        let u;
-
-        try {
-            u = new URL(rawURL, location.href);
-        } catch {
-            return false;
-        }
-
-        const host = u.hostname.toLowerCase();
-        const pathAndQuery = `${u.pathname}${u.search}`.toLowerCase();
-
-        for (const domain of BLOCKED_HOSTS) {
-            if (
-                host === domain ||
-                host.endsWith('.' + domain)
-            ) {
-                return true;
-            }
-        }
-
-        return BLOCKED_URL_PARTS.some(word => pathAndQuery.includes(word));
-    }
-
-    const nativeFetch = window.fetch;
-
-    if (typeof nativeFetch === 'function') {
-        try {
-            window.fetch = function(input, init) {
-                if (blocked(input)) {
-                    return Promise.reject(
-                        new DOMException(
-                            'Blocked by RON ad blocker',
-                            'AbortError'
-                        )
-                    );
-                }
-
-                return nativeFetch.call(this, input, init);
-            };
-        } catch {}
-    }
-
-    if (typeof XMLHttpRequest === 'function') {
-        const xhrOpen = XMLHttpRequest.prototype.open;
-        const xhrSend = XMLHttpRequest.prototype.send;
-
-        try {
-            XMLHttpRequest.prototype.open = function(method, url) {
-                this.__ronBlocked = blocked(url);
-                return xhrOpen.apply(this, arguments);
-            };
-
-            XMLHttpRequest.prototype.send = function() {
-                if (this.__ronBlocked) {
-                    this.abort();
-                    return undefined;
-                }
-
-                return xhrSend.apply(this, arguments);
-            };
-        } catch {}
-    }
-
-    const nativeSendBeacon = navigator.sendBeacon;
-
-    if (typeof nativeSendBeacon === 'function') {
-        try {
-            navigator.sendBeacon = function(url, data) {
-                if (blocked(url)) return false;
-                return nativeSendBeacon.call(this, url, data);
-            };
-        } catch {}
-    }
-
-    const nativeOpen = window.open;
-
-    if (typeof nativeOpen === 'function') {
-        try {
-            window.open = function(url, ...args) {
-                if (blocked(url)) {
-                    console.debug(
-                        '[RON] blocked popup',
-                        url
-                    );
-
-                    return null;
-                }
-
-                return nativeOpen.call(
-                    window,
-                    url,
-                    ...args
-                );
-            };
-        } catch {}
-    }
-
-    document.addEventListener('click', event => {
-        const link = event.target.closest?.('a[href]');
-        if (!link || !blocked(link.href)) return;
-
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        console.debug('[RON] blocked link', link.href);
-    }, true);
-
-    if (typeof HTMLAnchorElement === 'function') {
-        const nativeAnchorClick = HTMLAnchorElement.prototype.click;
-
-        try {
-            HTMLAnchorElement.prototype.click = function() {
-                if (blocked(this.href)) {
-                    console.debug('[RON] blocked scripted link', this.href);
-                    return;
-                }
-
-                return nativeAnchorClick.call(this);
-            };
-        } catch {}
-    }
-
-    const style = document.createElement('style');
-    style.textContent = `${BLOCKED_SELECTORS.join(',\n')} { display: none !important; }`;
-    (document.head || document.documentElement).appendChild(style);
-
-    function clean(root = document) {
-        if (!root.querySelectorAll) return;
-
-        for (const selector of BLOCKED_SELECTORS) {
-            try {
-                if (root.matches?.(selector)) root.remove();
-                root.querySelectorAll(selector)
-                    .forEach(el => {
-                        el.remove();
-                    });
-            } catch {}
-        }
-
-       
-        for (const selector of BLOCKED_RESOURCE_SELECTORS) {
-            if (root.matches?.(selector)) {
-                const rootURL = root.src || root.href || root.data ||
-                    root.getAttribute('poster');
-                if (blocked(rootURL)) root.remove();
-                continue;
-            }
-
-            root.querySelectorAll(selector).forEach(element => {
-                try {
-                    const url = element.src || element.href ||
-                        element.data || element.getAttribute('poster');
-                    if (blocked(url)) {
-                        element.remove();
-                    }
-                } catch {}
-            });
-        }
-    }
-
-    const observer =
-        new MutationObserver(mutations => {
-            for (const mutation of mutations) {
-                for (const node of mutation.addedNodes) {
-                    if (
-                        node.nodeType !==
-                        Node.ELEMENT_NODE
-                    ) {
-                        continue;
-                    }
-
-                    clean(node);
-
-                    if (node.shadowRoot) {
-                        clean(node.shadowRoot);
-                        observer.observe(
-                            node.shadowRoot,
-                            {
-                                childList: true,
-                                subtree: true
-                            }
-                        );
-                    }
-                }
-            }
-        });
-
-    function start() {
-        if (!document.documentElement) {
-            requestAnimationFrame(start);
+    function removeElement(element) {
+        if (!element || !element.parentNode) {
             return;
         }
 
-        observer.observe(
-            document.documentElement,
+        try {
+            element.remove();
+        } catch {
+            try {
+                element.parentNode.removeChild(
+                    element
+                );
+            } catch {}
+        }
+    }
+
+    function cleanElement(element) {
+        if (!element || element.nodeType !== 1) {
+            return;
+        }
+
+        const url = elementURL(element);
+
+        if (
+            url &&
+            isBlockedURL(url)
+        ) {
+            blockedLog(
+                'resource',
+                url
+            );
+
+            removeElement(element);
+            return;
+        }
+
+        for (const selector of AD_SELECTORS) {
+            try {
+                if (element.matches(selector)) {
+                    blockedLog(
+                        'element',
+                        selector
+                    );
+
+                    removeElement(element);
+                    return;
+                }
+            } catch {}
+        }
+    }
+
+    function cleanTree(root) {
+        if (!root) return;
+
+        try {
+            if (root.nodeType === 1) {
+                cleanElement(root);
+            }
+
+            if (!root.querySelectorAll) {
+                return;
+            }
+
+            for (const selector of AD_SELECTORS) {
+                try {
+                    root
+                        .querySelectorAll(selector)
+                        .forEach(removeElement);
+                } catch {}
+            }
+
+            for (const selector of RESOURCE_ELEMENTS) {
+                try {
+                    root
+                        .querySelectorAll(selector)
+                        .forEach(element => {
+                            cleanElement(element);
+                        });
+                } catch {}
+            }
+        } catch {}
+    }
+
+    function installStyle() {
+        if (document.getElementById(
+            'ron-ad-killer-style'
+        )) {
+            return;
+        }
+
+        const style =
+            document.createElement('style');
+
+        style.id =
+            'ron-ad-killer-style';
+
+        style.textContent = `
+            ins.adsbygoogle,
+            .adsbygoogle,
+            [data-ad-slot],
+            [data-ad-client],
+            [data-ad-unit],
+            [data-ad-format],
+            [data-advertisement],
+            [id="ad"],
+            [id^="ad-"],
+            [id^="ad_"],
+            [id*="-ad-"],
+            [id*="_ad_"],
+            [id*="ad-container" i],
+            [id*="adcontainer" i],
+            [id*="advertisement" i],
+            [id*="interstitial" i],
+            [id*="popunder" i],
+            [class="ad"],
+            [class^="ad-"],
+            [class^="ad_"],
+            [class*="-ad-"],
+            [class*="_ad_"],
+            [class*="ad-container" i],
+            [class*="adcontainer" i],
+            [class*="advertisement" i],
+            [class*="interstitial" i],
+            [class*="popunder" i],
+            [aria-label*="advertisement" i],
+            [aria-label*="sponsored" i] {
+                display: none !important;
+                visibility: hidden !important;
+                pointer-events: none !important;
+            }
+        `;
+
+        (
+            document.head ||
+            document.documentElement
+        )?.appendChild(style);
+    }
+
+    function installDOMHooks() {
+        try {
+            const nativeAppendChild =
+                Node.prototype.appendChild;
+
+            Node.prototype.appendChild =
+                function(node) {
+                    if (
+                        node &&
+                        node.nodeType === 1
+                    ) {
+                        cleanElement(node);
+
+                        if (
+                            !node.isConnected &&
+                            node.parentNode === null
+                        ) {
+                            return node;
+                        }
+                    }
+
+                    return nativeAppendChild.call(
+                        this,
+                        node
+                    );
+                };
+        } catch {}
+
+        try {
+            const nativeInsertBefore =
+                Node.prototype.insertBefore;
+
+            Node.prototype.insertBefore =
+                function(node, reference) {
+                    if (
+                        node &&
+                        node.nodeType === 1
+                    ) {
+                        cleanElement(node);
+
+                        if (
+                            !node.isConnected &&
+                            node.parentNode === null
+                        ) {
+                            return node;
+                        }
+                    }
+
+                    return nativeInsertBefore.call(
+                        this,
+                        node,
+                        reference
+                    );
+                };
+        } catch {}
+
+        try {
+            const nativeReplaceChild =
+                Node.prototype.replaceChild;
+
+            Node.prototype.replaceChild =
+                function(newNode, oldNode) {
+                    if (
+                        newNode &&
+                        newNode.nodeType === 1
+                    ) {
+                        cleanElement(newNode);
+                    }
+
+                    return nativeReplaceChild.call(
+                        this,
+                        newNode,
+                        oldNode
+                    );
+                };
+        } catch {}
+
+        try {
+            const nativeAppend =
+                Element.prototype.append;
+
+            Element.prototype.append =
+                function(...nodes) {
+                    for (const node of nodes) {
+                        if (
+                            node &&
+                            node.nodeType === 1
+                        ) {
+                            cleanElement(node);
+                        }
+                    }
+
+                    return nativeAppend.apply(
+                        this,
+                        nodes
+                    );
+                };
+        } catch {}
+
+        try {
+            const nativePrepend =
+                Element.prototype.prepend;
+
+            Element.prototype.prepend =
+                function(...nodes) {
+                    for (const node of nodes) {
+                        if (
+                            node &&
+                            node.nodeType === 1
+                        ) {
+                            cleanElement(node);
+                        }
+                    }
+
+                    return nativePrepend.apply(
+                        this,
+                        nodes
+                    );
+                };
+        } catch {}
+    }
+
+    function installAttributeHook() {
+        try {
+            const nativeSetAttribute =
+                Element.prototype.setAttribute;
+
+            Element.prototype.setAttribute =
+                function(name, value) {
+                    const attribute =
+                        String(name).toLowerCase();
+
+                    if (
+                        attribute === 'src' ||
+                        attribute === 'href' ||
+                        attribute === 'data' ||
+                        attribute === 'action'
+                    ) {
+                        if (
+                            isBlockedURL(value)
+                        ) {
+                            blockedLog(
+                                'attribute',
+                                value
+                            );
+
+                            return;
+                        }
+                    }
+
+                    return nativeSetAttribute.call(
+                        this,
+                        name,
+                        value
+                    );
+                };
+        } catch {}
+    }
+
+    let observer;
+
+    try {
+        observer =
+            new MutationObserver(
+                mutations => {
+                    for (const mutation of mutations) {
+                        for (
+                            const node
+                            of mutation.addedNodes
+                        ) {
+                            if (
+                                node.nodeType !== 1
+                            ) {
+                                continue;
+                            }
+
+                            cleanTree(node);
+
+                            try {
+                                if (
+                                    node.shadowRoot
+                                ) {
+                                    cleanTree(
+                                        node.shadowRoot
+                                    );
+
+                                    observer.observe(
+                                        node.shadowRoot,
+                                        {
+                                            childList: true,
+                                            subtree: true
+                                        }
+                                    );
+                                }
+                            } catch {}
+                        }
+                    }
+                }
+            );
+    } catch {
+        observer = null;
+    }
+
+    function start() {
+        installStyle();
+        installDOMHooks();
+        installAttributeHook();
+
+        if (
+            observer &&
+            document.documentElement
+        ) {
+            try {
+                observer.observe(
+                    document.documentElement,
+                    {
+                        childList: true,
+                        subtree: true
+                    }
+                );
+            } catch {}
+        }
+
+        cleanTree(document);
+    }
+
+    if (document.documentElement) {
+        start();
+    } else {
+        const bootObserver =
+            new MutationObserver(() => {
+                if (
+                    document.documentElement
+                ) {
+                    bootObserver.disconnect();
+                    start();
+                }
+            });
+
+        bootObserver.observe(
+            document,
             {
                 childList: true,
                 subtree: true
             }
         );
-
-        clean(document);
     }
 
-    start();
-
-    
-    if (
-        location.hostname === 'buildnow.gg' ||
-        location.hostname.endsWith('.buildnow.gg')
-    ) {
-        setInterval(
-            () => clean(document),
-            500
-        );
+    if (IS_BUILDNOW) {
+        setInterval(() => {
+            cleanTree(document);
+            installStyle();
+        }, 750);
 
         console.log(
-            '%cRON%c BuildNow Ad Killer active',
-            'font-weight:bold',
+            '%cRON%c BuildNow Ad Killer 4.3.0 active',
+            'font-weight:900;color:#8b5cf6',
             ''
         );
-    }
 
+        Object.defineProperty(
+            window,
+            '__RON_AD_STATS__',
+            {
+                configurable: false,
+                get() {
+                    return {
+                        active: true,
+                        buildNow: true,
+                        blocked: blockedCount
+                    };
+                }
+            }
+        );
+    }
 })();

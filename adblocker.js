@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
-// @namespace    https://nectarlabs.dev/
+// @namespace    https://ron.cool/
 // @version      4.1.0
 // @description  Block advertising requests, popups, and injected ad containers
 // @match        https://buildnow.gg/*
@@ -9,6 +9,9 @@
 // @run-at       document-start
 // @grant        none
 // @inject-into  page
+// @license      MIT
+// @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-buildnow-ad-killer.user.js
+// @downloadURL  https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-buildnow-ad-killer.user.js
 // ==/UserScript==
 
 (() => {

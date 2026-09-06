@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
 // @namespace    https://ron.cool/
-// @version      4.1.0
+// @version      4.2.0
 // @description  Block advertising requests, popups, and injected ad containers
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
@@ -9,6 +9,7 @@
 // @run-at       document-start
 // @grant        none
 // @inject-into  page
+// @noframes
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-buildnow-ad-killer.user.js
 // @downloadURL  https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-buildnow-ad-killer.user.js
@@ -16,6 +17,9 @@
 
 (() => {
     'use strict';
+
+    if (window.__RON_AD_BLOCKER__) return;
+    window.__RON_AD_BLOCKER__ = true;
 
     const BLOCKED_HOSTS = new Set([
         'doubleclick.net',
@@ -127,35 +131,43 @@
 
     const nativeFetch = window.fetch;
 
-    window.fetch = function(input, init) {
-        if (blocked(input)) {
-            return Promise.reject(
-                new DOMException(
-                    'Blocked by RON ad blocker',
-                    'AbortError'
-                )
-            );
-        }
+    if (typeof nativeFetch === 'function') {
+        try {
+            window.fetch = function(input, init) {
+                if (blocked(input)) {
+                    return Promise.reject(
+                        new DOMException(
+                            'Blocked by RON ad blocker',
+                            'AbortError'
+                        )
+                    );
+                }
 
-        return nativeFetch.call(this, input, init);
-    };
+                return nativeFetch.call(this, input, init);
+            };
+        } catch {}
+    }
 
-    const xhrOpen = XMLHttpRequest.prototype.open;
-    const xhrSend = XMLHttpRequest.prototype.send;
+    if (typeof XMLHttpRequest === 'function') {
+        const xhrOpen = XMLHttpRequest.prototype.open;
+        const xhrSend = XMLHttpRequest.prototype.send;
 
-    XMLHttpRequest.prototype.open = function(method, url) {
-        this.__ronBlocked = blocked(url);
-        return xhrOpen.apply(this, arguments);
-    };
+        try {
+            XMLHttpRequest.prototype.open = function(method, url) {
+                this.__ronBlocked = blocked(url);
+                return xhrOpen.apply(this, arguments);
+            };
 
-    XMLHttpRequest.prototype.send = function() {
-        if (this.__ronBlocked) {
-            this.abort();
-            return undefined;
-        }
+            XMLHttpRequest.prototype.send = function() {
+                if (this.__ronBlocked) {
+                    this.abort();
+                    return undefined;
+                }
 
-        return xhrSend.apply(this, arguments);
-    };
+                return xhrSend.apply(this, arguments);
+            };
+        } catch {}
+    }
 
     const nativeSendBeacon = navigator.sendBeacon;
 
@@ -170,22 +182,26 @@
 
     const nativeOpen = window.open;
 
-    window.open = function(url, ...args) {
-        if (blocked(url)) {
-            console.debug(
-                '[RON] blocked popup',
-                url
-            );
+    if (typeof nativeOpen === 'function') {
+        try {
+            window.open = function(url, ...args) {
+                if (blocked(url)) {
+                    console.debug(
+                        '[RON] blocked popup',
+                        url
+                    );
 
-            return null;
-        }
+                    return null;
+                }
 
-        return nativeOpen.call(
-            window,
-            url,
-            ...args
-        );
-    };
+                return nativeOpen.call(
+                    window,
+                    url,
+                    ...args
+                );
+            };
+        } catch {}
+    }
 
     document.addEventListener('click', event => {
         const link = event.target.closest?.('a[href]');
@@ -196,15 +212,20 @@
         console.debug('[RON] blocked link', link.href);
     }, true);
 
-    const nativeAnchorClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function() {
-        if (blocked(this.href)) {
-            console.debug('[RON] blocked scripted link', this.href);
-            return;
-        }
+    if (typeof HTMLAnchorElement === 'function') {
+        const nativeAnchorClick = HTMLAnchorElement.prototype.click;
 
-        return nativeAnchorClick.call(this);
-    };
+        try {
+            HTMLAnchorElement.prototype.click = function() {
+                if (blocked(this.href)) {
+                    console.debug('[RON] blocked scripted link', this.href);
+                    return;
+                }
+
+                return nativeAnchorClick.call(this);
+            };
+        } catch {}
+    }
 
     const style = document.createElement('style');
     style.textContent = `${BLOCKED_SELECTORS.join(',\n')} { display: none !important; }`;

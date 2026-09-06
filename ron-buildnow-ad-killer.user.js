@@ -1,8 +1,9 @@
+
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
 // @namespace    https://ron.cool/
-// @version      4.3.0
-// @description  Aggressive ad, popup, tracking and injected-ad blocker for BuildNow.GG and other websites
+// @version      4.4.0
+// @description  Lightweight ad blocker for BuildNow.GG and the web
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
 // @match        *://*/*
@@ -18,33 +19,20 @@
 (() => {
     'use strict';
 
-    if (window.__RON_AD_KILLER__) return;
-    window.__RON_AD_KILLER__ = true;
+    if (window.__RON_AD_BLOCKER__) return;
+    window.__RON_AD_BLOCKER__ = true;
 
-    const IS_BUILDNOW =
+    const isBuildNow =
         location.hostname === 'buildnow.gg' ||
         location.hostname.endsWith('.buildnow.gg');
 
-    const BLOCKED_HOSTS = new Set([
+    const BLOCKED_DOMAINS = [
         'doubleclick.net',
         'googlesyndication.com',
         'googleadservices.com',
         'googletagservices.com',
-        'googletagmanager.com',
-        'google-analytics.com',
-        'analytics.google.com',
-        'adservice.google.com',
-
-        'amazon-adsystem.com',
-        'aax.amazon-adsystem.com',
-
-        'bat.bing.com',
-
-        'an.facebook.com',
-        'connect.facebook.net',
-
         'adnxs.com',
-        'adsrvr.org',
+        'amazon-adsystem.com',
         'adform.net',
         'criteo.com',
         'criteo.net',
@@ -57,8 +45,9 @@
         'smartadserver.com',
         'teads.tv',
         'mgid.com',
-        '33across.com',
+        'adsrvr.org',
         'appnexus.com',
+        '33across.com',
         'casalemedia.com',
         'contextweb.com',
         'indexexchange.com',
@@ -68,50 +57,18 @@
         'triplelift.com',
         'yieldmo.com',
         'sovrn.com',
-        'media.net',
+        'media.net'
+    ];
 
-        'unityads.unity3d.com',
-        'ads.unity.com',
-        'unity3d.com',
-
-        'berht-shv.com',
-        'studiowatersolutions.com'
-    ]);
-
-    const BLOCKED_URL_PARTS = [
+    const BLOCKED_PATHS = [
         '/ads/',
-        '/ads.',
-        '/ad/',
-        '/ad.',
-        '/advert/',
-        '/advertising/',
-        '/advertisement/',
         '/adserver/',
         '/adservice/',
         '/adsystem/',
-        '/adframe/',
-        '/adiframe/',
-        '/adtag/',
-        '/adunit/',
-        '/adloader/',
-        '/admanager/',
-        '/adrequest/',
-        '/adrequest.',
-        '/adcall/',
-        '/adcall.',
-        'googlesyndication',
-        'doubleclick',
-        'googleadservices',
-        'amazon-adsystem',
-        'adserver',
-        'adservice',
-        'adsystem',
-        'advertising',
-        'advertisement',
-        'interstitial',
-        'popunder',
-        'pop-up-ad',
-        'popup-ad'
+        '/advertising/',
+        '/advertisement/',
+        '/interstitial/',
+        '/popunder/'
     ];
 
     function getURL(value) {
@@ -126,75 +83,48 @@
                 return value.href;
             }
 
-            if (typeof Request !== 'undefined' && value instanceof Request) {
+            if (
+                typeof Request !== 'undefined' &&
+                value instanceof Request
+            ) {
                 return value.url;
             }
 
-            if (typeof value === 'object' && value.url) {
-                return String(value.url);
+            if (typeof value.url === 'string') {
+                return value.url;
             }
+        } catch {}
 
-            return '';
-        } catch {
-            return '';
-        }
+        return '';
     }
 
-    function isBlockedURL(value) {
-        const raw = getURL(value);
+    function isBlocked(url) {
+        const raw = getURL(url);
 
-        if (!raw) {
-            return false;
-        }
+        if (!raw) return false;
 
-        let url;
+        let parsed;
 
         try {
-            url = new URL(raw, location.href);
+            parsed = new URL(raw, location.href);
         } catch {
             return false;
         }
 
-        const hostname = url.hostname.toLowerCase();
-        const path = url.pathname.toLowerCase();
-        const search = url.search.toLowerCase();
+        const hostname = parsed.hostname.toLowerCase();
+        const path = parsed.pathname.toLowerCase();
 
-        for (const host of BLOCKED_HOSTS) {
+        for (const domain of BLOCKED_DOMAINS) {
             if (
-                hostname === host ||
-                hostname.endsWith('.' + host)
+                hostname === domain ||
+                hostname.endsWith('.' + domain)
             ) {
                 return true;
             }
         }
 
-        const combined = `${path}${search}`;
-
-        for (const part of BLOCKED_URL_PARTS) {
-            if (combined.includes(part)) {
-                return true;
-            }
-        }
-
-        const adParams = [
-            'adunit',
-            'ad_unit',
-            'adslot',
-            'ad_slot',
-            'adtag',
-            'ad_tag',
-            'adserver',
-            'adformat',
-            'ad_format',
-            'advertiser',
-            'interstitial'
-        ];
-
-        for (const param of adParams) {
-            if (
-                search.includes(`?${param}=`) ||
-                search.includes(`&${param}=`)
-            ) {
+        for (const blockedPath of BLOCKED_PATHS) {
+            if (path.includes(blockedPath)) {
                 return true;
             }
         }
@@ -202,36 +132,26 @@
         return false;
     }
 
-    let blockedCount = 0;
+    if (typeof window.fetch === 'function') {
+        const originalFetch = window.fetch;
 
-    function blockedLog(type, url) {
-        blockedCount++;
-
-        if (IS_BUILDNOW) {
-            console.debug(
-                `[RON] blocked ${type}:`,
-                url
-            );
-        }
-    }
-
-    const nativeFetch = window.fetch;
-
-    if (typeof nativeFetch === 'function') {
         try {
             window.fetch = function(input, init) {
-                if (isBlockedURL(input)) {
-                    blockedLog('fetch', getURL(input));
+                if (isBlocked(input)) {
+                    console.debug(
+                        '[RON] blocked fetch:',
+                        getURL(input)
+                    );
 
                     return Promise.reject(
                         new DOMException(
-                            'Blocked by Ron | BuildNow Ad Killer',
+                            'Blocked by Ron Ad Killer',
                             'AbortError'
                         )
                     );
                 }
 
-                return nativeFetch.call(
+                return originalFetch.call(
                     this,
                     input,
                     init
@@ -242,25 +162,26 @@
 
     if (typeof XMLHttpRequest !== 'undefined') {
         try {
-            const nativeOpen =
+            const originalOpen =
                 XMLHttpRequest.prototype.open;
 
-            const nativeSend =
+            const originalSend =
                 XMLHttpRequest.prototype.send;
 
             XMLHttpRequest.prototype.open =
                 function(method, url) {
+
                     this.__RON_BLOCKED =
-                        isBlockedURL(url);
+                        isBlocked(url);
 
                     if (this.__RON_BLOCKED) {
-                        blockedLog(
-                            'XHR',
+                        console.debug(
+                            '[RON] blocked XHR:',
                             getURL(url)
                         );
                     }
 
-                    return nativeOpen.apply(
+                    return originalOpen.apply(
                         this,
                         arguments
                     );
@@ -268,6 +189,7 @@
 
             XMLHttpRequest.prototype.send =
                 function() {
+
                     if (this.__RON_BLOCKED) {
                         try {
                             this.abort();
@@ -276,7 +198,7 @@
                         return;
                     }
 
-                    return nativeSend.apply(
+                    return originalSend.apply(
                         this,
                         arguments
                     );
@@ -285,25 +207,25 @@
     }
 
     if (
-        navigator.sendBeacon &&
         typeof navigator.sendBeacon === 'function'
     ) {
         try {
-            const nativeBeacon =
+            const originalBeacon =
                 navigator.sendBeacon.bind(navigator);
 
             navigator.sendBeacon =
                 function(url, data) {
-                    if (isBlockedURL(url)) {
-                        blockedLog(
-                            'beacon',
+
+                    if (isBlocked(url)) {
+                        console.debug(
+                            '[RON] blocked beacon:',
                             getURL(url)
                         );
 
                         return false;
                     }
 
-                    return nativeBeacon(
+                    return originalBeacon(
                         url,
                         data
                     );
@@ -313,21 +235,22 @@
 
     if (typeof window.open === 'function') {
         try {
-            const nativeOpen =
+            const originalOpen =
                 window.open.bind(window);
 
             window.open =
                 function(url, ...args) {
-                    if (isBlockedURL(url)) {
-                        blockedLog(
-                            'popup',
+
+                    if (isBlocked(url)) {
+                        console.debug(
+                            '[RON] blocked popup:',
                             getURL(url)
                         );
 
                         return null;
                     }
 
-                    return nativeOpen(
+                    return originalOpen(
                         url,
                         ...args
                     );
@@ -335,466 +258,152 @@
         } catch {}
     }
 
+    const AD_SELECTORS = [
+        'ins.adsbygoogle',
+        '.adsbygoogle',
+        '[data-ad-slot]',
+        '[data-ad-client]',
+        '[data-ad-unit]',
+        '[data-ad-format]',
+        '[data-advertisement]',
+        '[aria-label="advertisement" i]',
+        '[aria-label="sponsored" i]'
+    ];
+
+    function removeAds(root = document) {
+        if (!root.querySelectorAll) return;
+
+        for (const selector of AD_SELECTORS) {
+            try {
+                root
+                    .querySelectorAll(selector)
+                    .forEach(element => {
+                        element.remove();
+
+                        console.debug(
+                            '[RON] removed ad element'
+                        );
+                    });
+            } catch {}
+        }
+    }
+
+    function checkElement(element) {
+        if (!(element instanceof Element)) {
+            return;
+        }
+
+        const url =
+            element.src ||
+            element.href ||
+            element.data ||
+            '';
+
+        if (url && isBlocked(url)) {
+            console.debug(
+                '[RON] removed blocked resource:',
+                url
+            );
+
+            element.remove();
+        }
+    }
+
+    let observer;
+
+    try {
+        observer = new MutationObserver(
+            mutations => {
+
+                for (const mutation of mutations) {
+
+                    for (const node of mutation.addedNodes) {
+
+                        if (
+                            node.nodeType !==
+                            Node.ELEMENT_NODE
+                        ) {
+                            continue;
+                        }
+
+                        checkElement(node);
+                        removeAds(node);
+
+                        try {
+                            if (node.shadowRoot) {
+                                removeAds(
+                                    node.shadowRoot
+                                );
+
+                                observer.observe(
+                                    node.shadowRoot,
+                                    {
+                                        childList: true,
+                                        subtree: true
+                                    }
+                                );
+                            }
+                        } catch {}
+                    }
+                }
+            }
+        );
+    } catch {}
+
     document.addEventListener(
         'click',
         event => {
-            const target =
+
+            const link =
                 event.target?.closest?.(
                     'a[href]'
                 );
 
-            if (!target) return;
+            if (!link) return;
 
-            if (isBlockedURL(target.href)) {
+            if (isBlocked(link.href)) {
+
                 event.preventDefault();
                 event.stopImmediatePropagation();
 
-                blockedLog(
-                    'link',
-                    target.href
+                console.debug(
+                    '[RON] blocked ad link:',
+                    link.href
                 );
             }
         },
         true
     );
 
-    function elementURL(element) {
-        if (!element) return '';
-
-        return (
-            element.src ||
-            element.href ||
-            element.data ||
-            element.action ||
-            element.getAttribute?.('src') ||
-            element.getAttribute?.('href') ||
-            ''
-        );
-    }
-
-    const AD_SELECTORS = [
-        'ins.adsbygoogle',
-        '.adsbygoogle',
-
-        '[data-ad-slot]',
-        '[data-ad-client]',
-        '[data-ad-unit]',
-        '[data-ad-format]',
-        '[data-advertisement]',
-
-        '[id="ad"]',
-        '[id^="ad-"]',
-        '[id^="ad_"]',
-        '[id*="-ad-"]',
-        '[id*="_ad_"]',
-        '[id*="ad-container" i]',
-        '[id*="adcontainer" i]',
-        '[id*="advertisement" i]',
-        '[id*="interstitial" i]',
-        '[id*="popunder" i]',
-
-        '[class="ad"]',
-        '[class^="ad-"]',
-        '[class^="ad_"]',
-        '[class*="-ad-"]',
-        '[class*="_ad_"]',
-        '[class*="ad-container" i]',
-        '[class*="adcontainer" i]',
-        '[class*="advertisement" i]',
-        '[class*="interstitial" i]',
-        '[class*="popunder" i]',
-
-        '[aria-label*="advertisement" i]',
-        '[aria-label*="sponsored" i]'
-    ];
-
-    const RESOURCE_ELEMENTS = [
-        'iframe',
-        'script',
-        'img',
-        'link',
-        'video',
-        'audio',
-        'source',
-        'embed',
-        'object'
-    ];
-
-    function removeElement(element) {
-        if (!element || !element.parentNode) {
-            return;
-        }
-
-        try {
-            element.remove();
-        } catch {
-            try {
-                element.parentNode.removeChild(
-                    element
-                );
-            } catch {}
-        }
-    }
-
-    function cleanElement(element) {
-        if (!element || element.nodeType !== 1) {
-            return;
-        }
-
-        const url = elementURL(element);
-
-        if (
-            url &&
-            isBlockedURL(url)
-        ) {
-            blockedLog(
-                'resource',
-                url
-            );
-
-            removeElement(element);
-            return;
-        }
-
-        for (const selector of AD_SELECTORS) {
-            try {
-                if (element.matches(selector)) {
-                    blockedLog(
-                        'element',
-                        selector
-                    );
-
-                    removeElement(element);
-                    return;
-                }
-            } catch {}
-        }
-    }
-
-    function cleanTree(root) {
-        if (!root) return;
-
-        try {
-            if (root.nodeType === 1) {
-                cleanElement(root);
-            }
-
-            if (!root.querySelectorAll) {
-                return;
-            }
-
-            for (const selector of AD_SELECTORS) {
-                try {
-                    root
-                        .querySelectorAll(selector)
-                        .forEach(removeElement);
-                } catch {}
-            }
-
-            for (const selector of RESOURCE_ELEMENTS) {
-                try {
-                    root
-                        .querySelectorAll(selector)
-                        .forEach(element => {
-                            cleanElement(element);
-                        });
-                } catch {}
-            }
-        } catch {}
-    }
-
-    function installStyle() {
-        if (document.getElementById(
-            'ron-ad-killer-style'
-        )) {
-            return;
-        }
-
-        const style =
-            document.createElement('style');
-
-        style.id =
-            'ron-ad-killer-style';
-
-        style.textContent = `
-            ins.adsbygoogle,
-            .adsbygoogle,
-            [data-ad-slot],
-            [data-ad-client],
-            [data-ad-unit],
-            [data-ad-format],
-            [data-advertisement],
-            [id="ad"],
-            [id^="ad-"],
-            [id^="ad_"],
-            [id*="-ad-"],
-            [id*="_ad_"],
-            [id*="ad-container" i],
-            [id*="adcontainer" i],
-            [id*="advertisement" i],
-            [id*="interstitial" i],
-            [id*="popunder" i],
-            [class="ad"],
-            [class^="ad-"],
-            [class^="ad_"],
-            [class*="-ad-"],
-            [class*="_ad_"],
-            [class*="ad-container" i],
-            [class*="adcontainer" i],
-            [class*="advertisement" i],
-            [class*="interstitial" i],
-            [class*="popunder" i],
-            [aria-label*="advertisement" i],
-            [aria-label*="sponsored" i] {
-                display: none !important;
-                visibility: hidden !important;
-                pointer-events: none !important;
-            }
-        `;
-
-        (
-            document.head ||
-            document.documentElement
-        )?.appendChild(style);
-    }
-
-    function installDOMHooks() {
-        try {
-            const nativeAppendChild =
-                Node.prototype.appendChild;
-
-            Node.prototype.appendChild =
-                function(node) {
-                    if (
-                        node &&
-                        node.nodeType === 1
-                    ) {
-                        cleanElement(node);
-
-                        if (
-                            !node.isConnected &&
-                            node.parentNode === null
-                        ) {
-                            return node;
-                        }
-                    }
-
-                    return nativeAppendChild.call(
-                        this,
-                        node
-                    );
-                };
-        } catch {}
-
-        try {
-            const nativeInsertBefore =
-                Node.prototype.insertBefore;
-
-            Node.prototype.insertBefore =
-                function(node, reference) {
-                    if (
-                        node &&
-                        node.nodeType === 1
-                    ) {
-                        cleanElement(node);
-
-                        if (
-                            !node.isConnected &&
-                            node.parentNode === null
-                        ) {
-                            return node;
-                        }
-                    }
-
-                    return nativeInsertBefore.call(
-                        this,
-                        node,
-                        reference
-                    );
-                };
-        } catch {}
-
-        try {
-            const nativeReplaceChild =
-                Node.prototype.replaceChild;
-
-            Node.prototype.replaceChild =
-                function(newNode, oldNode) {
-                    if (
-                        newNode &&
-                        newNode.nodeType === 1
-                    ) {
-                        cleanElement(newNode);
-                    }
-
-                    return nativeReplaceChild.call(
-                        this,
-                        newNode,
-                        oldNode
-                    );
-                };
-        } catch {}
-
-        try {
-            const nativeAppend =
-                Element.prototype.append;
-
-            Element.prototype.append =
-                function(...nodes) {
-                    for (const node of nodes) {
-                        if (
-                            node &&
-                            node.nodeType === 1
-                        ) {
-                            cleanElement(node);
-                        }
-                    }
-
-                    return nativeAppend.apply(
-                        this,
-                        nodes
-                    );
-                };
-        } catch {}
-
-        try {
-            const nativePrepend =
-                Element.prototype.prepend;
-
-            Element.prototype.prepend =
-                function(...nodes) {
-                    for (const node of nodes) {
-                        if (
-                            node &&
-                            node.nodeType === 1
-                        ) {
-                            cleanElement(node);
-                        }
-                    }
-
-                    return nativePrepend.apply(
-                        this,
-                        nodes
-                    );
-                };
-        } catch {}
-    }
-
-    function installAttributeHook() {
-        try {
-            const nativeSetAttribute =
-                Element.prototype.setAttribute;
-
-            Element.prototype.setAttribute =
-                function(name, value) {
-                    const attribute =
-                        String(name).toLowerCase();
-
-                    if (
-                        attribute === 'src' ||
-                        attribute === 'href' ||
-                        attribute === 'data' ||
-                        attribute === 'action'
-                    ) {
-                        if (
-                            isBlockedURL(value)
-                        ) {
-                            blockedLog(
-                                'attribute',
-                                value
-                            );
-
-                            return;
-                        }
-                    }
-
-                    return nativeSetAttribute.call(
-                        this,
-                        name,
-                        value
-                    );
-                };
-        } catch {}
-    }
-
-    let observer;
-
-    try {
-        observer =
-            new MutationObserver(
-                mutations => {
-                    for (const mutation of mutations) {
-                        for (
-                            const node
-                            of mutation.addedNodes
-                        ) {
-                            if (
-                                node.nodeType !== 1
-                            ) {
-                                continue;
-                            }
-
-                            cleanTree(node);
-
-                            try {
-                                if (
-                                    node.shadowRoot
-                                ) {
-                                    cleanTree(
-                                        node.shadowRoot
-                                    );
-
-                                    observer.observe(
-                                        node.shadowRoot,
-                                        {
-                                            childList: true,
-                                            subtree: true
-                                        }
-                                    );
-                                }
-                            } catch {}
-                        }
-                    }
-                }
-            );
-    } catch {
-        observer = null;
-    }
-
     function start() {
-        installStyle();
-        installDOMHooks();
-        installAttributeHook();
 
-        if (
-            observer &&
-            document.documentElement
-        ) {
-            try {
-                observer.observe(
-                    document.documentElement,
-                    {
-                        childList: true,
-                        subtree: true
-                    }
-                );
-            } catch {}
+        removeAds();
+
+        if (observer && document.documentElement) {
+
+            observer.observe(
+                document.documentElement,
+                {
+                    childList: true,
+                    subtree: true
+                }
+            );
         }
-
-        cleanTree(document);
     }
 
     if (document.documentElement) {
         start();
     } else {
+
         const bootObserver =
             new MutationObserver(() => {
-                if (
-                    document.documentElement
-                ) {
-                    bootObserver.disconnect();
-                    start();
+
+                if (!document.documentElement) {
+                    return;
                 }
+
+                bootObserver.disconnect();
+                start();
             });
 
         bootObserver.observe(
@@ -806,31 +415,18 @@
         );
     }
 
-    if (IS_BUILDNOW) {
+    if (isBuildNow) {
+
         setInterval(() => {
-            cleanTree(document);
-            installStyle();
-        }, 750);
+            removeAds();
+        }, 1000);
 
         console.log(
-            '%cRON%c BuildNow Ad Killer 4.3.0 active',
+            '%cRON%c BuildNow Ad Killer 4.3.0 ACTIVE',
             'font-weight:900;color:#8b5cf6',
             ''
         );
-
-        Object.defineProperty(
-            window,
-            '__RON_AD_STATS__',
-            {
-                configurable: false,
-                get() {
-                    return {
-                        active: true,
-                        buildNow: true,
-                        blocked: blockedCount
-                    };
-                }
-            }
-        );
     }
+
 })();
+

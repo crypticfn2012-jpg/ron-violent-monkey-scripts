@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ron | BuildNow Ad Killer</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background:
+        radial-gradient(circle at top, #20243d 0%, #090a0f 55%);
+    color: #fff;
+    font-family: Inter, Arial, sans-serif;
+}
+
+.container {
+    width: 100%;
+    max-width: 700px;
+}
+
+.logo {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.logo span {
+    display: inline-block;
+    padding: 7px 13px;
+    border: 1px solid #343747;
+    border-radius: 999px;
+    color: #a7a9b7;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}
+
+h1 {
+    margin: 15px 0 8px;
+    font-size: 48px;
+    letter-spacing: -2px;
+}
+
+.subtitle {
+    margin: 0;
+    color: #9b9eac;
+}
+
+.card {
+    padding: 30px;
+    border: 1px solid #292c39;
+    border-radius: 22px;
+    background: rgba(18, 19, 27, .9);
+    box-shadow: 0 30px 80px rgba(0,0,0,.45);
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #aaaeba;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 12px #4ade80;
+}
+
+.install {
+    display: block;
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+    text-decoration: none;
+    color: white;
+    font-weight: 700;
+    background: linear-gradient(135deg,#7c3aed,#4f46e5);
+    transition: .2s;
+}
+
+.install:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.info {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 12px;
+    margin-top: 15px;
+}
+
+.info div {
+    padding: 14px;
+    border: 1px solid #292c39;
+    border-radius: 12px;
+    background: #11121a;
+}
+
+.info small {
+    display: block;
+    color: #777b8c;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 1px;
+}
+
+.info span {
+    font-size: 13px;
+}
+
+.instructions {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #292c39;
+}
+
+.instructions h2 {
+    font-size: 18px;
+    margin-top: 0;
+}
+
+.instructions p {
+    color: #999dac;
+    line-height: 1.6;
+}
+
+footer {
+    text-align: center;
+    margin-top: 18px;
+    color: #606474;
+    font-size: 12px;
+}
+
+@media(max-width:600px) {
+    h1 {
+        font-size: 36px;
+    }
+
+    .card {
+        padding: 20px;
+    }
+
+    .info {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="logo">
+        <span>RON</span>
+
+        <h1>BuildNow Ad Killer</h1>
+
+        <p class="subtitle">
+            Block ads. Block popups. Just play.
+        </p>
+    </div>
+
+    <div class="card">
+
+        <div class="status">
+            <span class="dot"></span>
+            Version 4.1.0
+        </div>
+
+        <a
+            class="install"
+            href="./ron-buildnow-ad-killer.user.js"
+        >
+            Install with Violentmonkey
+        </a>
+
+        <div class="info">
+
+            <div>
+                <small>Target</small>
+                <span>BuildNow.GG</span>
+            </div>
+
+            <div>
+                <small>Version</small>
+                <span>4.1.0</span>
+            </div>
+
+            <div>
+                <small>Requires</small>
+                <span>Violentmonkey</span>
+            </div>
+
+        </div>
+
+        <div class="instructions">
+
+            <h2>Installation</h2>
+
+            <p>
+                1. Install Violentmonkey in your browser.
+            </p>
+
+            <p>
+                2. Click the install button above.
+            </p>
+
+            <p>
+                3. Confirm the installation.
+            </p>
+
+            <p>
+                4. Open or refresh BuildNow.GG.
+            </p>
+
+        </div>
+
+    </div>
+
+    <footer>
+        Ron • BuildNow Ad Killer
+    </footer>
+
+</div>
+
+</body>
+</html>

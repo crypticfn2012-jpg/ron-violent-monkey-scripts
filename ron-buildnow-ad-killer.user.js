@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Ron | BuildNow Ad Killer
 // @namespace    https://ron.cool/
-// @version      4.5.0
+// @version      4.5.1
 // @description  Aggressive ad blocker for BuildNow.GG and other websites
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*

@@ -737,7 +737,7 @@
   window.addEventListener('resize',()=>{positionLauncher();if(state.panelOpen)positionPanel()});
   window.addEventListener('scroll',()=>{if(state.eyes){}},{passive:true});
 
-  // Konami-style hidden sequence.
+  
   const secret=['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
   let secretIndex=0;
   document.addEventListener('keydown',e=>{
@@ -748,7 +748,7 @@
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',createUI,{once:true});
   else createUI();
 
-  // Keep the UI available across SPA navigation without reinjecting it.
+  
   const originalPush=history.pushState,originalReplace=history.replaceState;
   history.pushState=function(...args){const r=originalPush.apply(this,args);setTimeout(()=>{if(!document.getElementById('__roncool_everywhere_root__'))createUI()},0);return r};
   history.replaceState=function(...args){const r=originalReplace.apply(this,args);setTimeout(()=>{if(!document.getElementById('__roncool_everywhere_root__'))createUI()},0);return r};

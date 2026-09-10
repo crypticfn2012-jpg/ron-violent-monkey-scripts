@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts
-// @version      4.0.0
+// @version      4.1.0
 // @description  RON ClipTools for BuildNow.GG - screenshots, configurable clips and recording
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
@@ -22,9 +22,6 @@
     if (document.getElementById(ID)) return;
 
     const CLIPS_WEBSITE = 'https://ron.cool/clips';
-    const DB_NAME = 'ron-cliptools-db';
-    const DB_VERSION = 1;
-    const DB_STORE = 'settings';
 
     const state = {
         recording: false,
@@ -32,7 +29,6 @@
         stream: null,
         chunks: [],
         timer: null,
-        startedAt: 0,
         folderHandle: null
     };
 
@@ -74,93 +70,58 @@
             .replace(/>/g, '&gt;');
     }
 
-    function openDatabase() {
-        return new Promise((resolve, reject) => {
-            if (!window.indexedDB) return resolve(null);
-            const request = indexedDB.open(DB_NAME, DB_VERSION);
-            request.onupgradeneeded = () => {
-                if (!request.result.objectStoreNames.contains(DB_STORE)) {
-                    request.result.createObjectStore(DB_STORE);
-                }
-            };
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => resolve(null);
-        });
-    }
-
-    async function saveFolderHandle(handle) {
-        state.folderHandle = handle;
-        try {
-            const db = await openDatabase();
-            if (!db) return;
-            await new Promise(resolve => {
-                const tx = db.transaction(DB_STORE, 'readwrite');
-                tx.objectStore(DB_STORE).put(handle, 'folder');
-                tx.oncomplete = resolve;
-                tx.onerror = resolve;
-            });
-            db.close();
-        } catch (_) {}
-    }
-
-    async function loadFolderHandle() {
-        if (state.folderHandle) return state.folderHandle;
-        try {
-            const db = await openDatabase();
-            if (!db) return null;
-            const handle = await new Promise(resolve => {
-                const tx = db.transaction(DB_STORE, 'readonly');
-                const request = tx.objectStore(DB_STORE).get('folder');
-                request.onsuccess = () => resolve(request.result || null);
-                request.onerror = () => resolve(null);
-            });
-            db.close();
-            state.folderHandle = handle;
-            return handle;
-        } catch (_) {
-            return null;
-        }
-    }
-
-    async function ensureFolderPermission(handle) {
-        if (!handle) return false;
-        try {
-            if (handle.queryPermission) {
-                const current = await handle.queryPermission({ mode: 'readwrite' });
-                if (current === 'granted') return true;
-            }
-            if (handle.requestPermission) {
-                return (await handle.requestPermission({ mode: 'readwrite' })) === 'granted';
-            }
-        } catch (_) {}
-        return false;
+    // Folder handles are kept in memory. This avoids the old IndexedDB failure
+    // path and means the picker is only used directly from the button click.
+    function updateFolderLabel() {
+        const label = shadow.querySelector('#folder-name');
+        if (label) label.textContent = state.folderHandle?.name || 'Browser Downloads';
     }
 
     async function chooseSaveFolder() {
-        if (!window.showDirectoryPicker) {
-            setStatus('Folder saving is not supported - downloads will be used');
+        const picker = window.showDirectoryPicker;
+
+        if (typeof picker !== 'function') {
+            setStatus('Folder picker unavailable - using Downloads');
+            updateFolderLabel();
             return;
         }
 
         try {
-            const handle = await window.showDirectoryPicker({
-                id: 'ron-cliptools',
-                mode: 'readwrite',
-                startIn: 'downloads'
-            });
+            // Do not pass optional picker arguments here. Some Chromium/Edge
+            // builds and embedded game frames reject picker options even when
+            // showDirectoryPicker itself is available.
+            const handle = await picker.call(window, { mode: 'readwrite' });
 
-            if (!(await ensureFolderPermission(handle))) {
-                setStatus('Folder permission was not granted');
+            if (!handle) {
+                setStatus('No folder selected');
                 return;
             }
 
-            await saveFolderHandle(handle);
-            const name = handle.name || 'selected folder';
-            const el = shadow.querySelector('#folder-name');
-            if (el) el.textContent = name;
-            setStatus(`Saving to ${name}`);
+            if (handle.queryPermission) {
+                let permission = await handle.queryPermission({ mode: 'readwrite' });
+                if (permission !== 'granted' && handle.requestPermission) {
+                    permission = await handle.requestPermission({ mode: 'readwrite' });
+                }
+                if (permission !== 'granted') {
+                    setStatus('Folder permission denied - using Downloads');
+                    return;
+                }
+            }
+
+            state.folderHandle = handle;
+            updateFolderLabel();
+            setStatus(`Saving to ${handle.name || 'selected folder'}`);
         } catch (err) {
-            if (err?.name !== 'AbortError') setStatus('Could not choose folder');
+            console.warn('[RON ClipTools] Folder picker:', err);
+
+            if (err?.name === 'AbortError') {
+                setStatus('Folder selection cancelled');
+            } else if (err?.name === 'SecurityError' || err?.name === 'NotAllowedError') {
+                setStatus('Browser blocked folder access - using Downloads');
+            } else {
+                setStatus('Folder picker unavailable - using Downloads');
+            }
+            updateFolderLabel();
         }
     }
 
@@ -170,17 +131,25 @@
             return;
         }
 
-        const handle = await loadFolderHandle();
-        if (handle && await ensureFolderPermission(handle)) {
+        if (state.folderHandle) {
             try {
-                const fileHandle = await handle.getFileHandle(name, { create: true });
+                if (state.folderHandle.queryPermission) {
+                    let permission = await state.folderHandle.queryPermission({ mode: 'readwrite' });
+                    if (permission !== 'granted' && state.folderHandle.requestPermission) {
+                        permission = await state.folderHandle.requestPermission({ mode: 'readwrite' });
+                    }
+                    if (permission !== 'granted') throw new Error('Folder permission not granted');
+                }
+
+                const fileHandle = await state.folderHandle.getFileHandle(name, { create: true });
                 const writable = await fileHandle.createWritable();
                 await writable.write(blob);
                 await writable.close();
                 setStatus(`Saved ${name}`);
                 return;
             } catch (err) {
-                console.warn('[RON ClipTools] Folder save failed, using browser download.', err);
+                console.warn('[RON ClipTools] Folder save failed:', err);
+                setStatus('Folder save failed - downloading instead');
             }
         }
 
@@ -193,13 +162,6 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setStatus(`Downloaded ${name}`);
-    }
-
-    async function restoreFolderLabel() {
-        const handle = await loadFolderHandle();
-        const label = shadow.querySelector('#folder-name');
-        if (label && handle?.name) label.textContent = handle.name;
     }
 
     function getGameCanvas() {
@@ -240,10 +202,7 @@
         }
 
         try {
-            state.stream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true
-            });
+            state.stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
 
             const mimeType = getSupportedMimeType();
             state.recorder = mimeType
@@ -251,7 +210,6 @@
                 : new MediaRecorder(state.stream);
 
             state.chunks = [];
-            state.startedAt = Date.now();
 
             state.recorder.ondataavailable = event => {
                 if (event.data?.size) state.chunks.push(event.data);
@@ -283,9 +241,9 @@
                 if (state.recording) stopRecording();
             }, settings.duration * 1000);
         } catch (err) {
-            console.log('[RON ClipTools] Capture cancelled', err);
+            console.log('[RON ClipTools] Capture cancelled:', err);
             cleanupRecording(true);
-            setStatus('Recording cancelled');
+            setStatus(err?.name === 'NotAllowedError' ? 'Screen capture permission denied' : 'Recording cancelled');
         }
     }
 
@@ -297,23 +255,17 @@
     function stopRecording() {
         clearClipTimer();
         if (!state.recorder) return cleanupRecording(true);
-        if (state.recorder.state !== 'inactive') {
-            state.recorder.stop();
-        } else {
-            cleanupRecording(true);
-        }
+        if (state.recorder.state !== 'inactive') state.recorder.stop();
+        else cleanupRecording(true);
     }
 
     function cleanupRecording(cancelled) {
         clearClipTimer();
-        if (state.stream) {
-            state.stream.getTracks().forEach(track => track.stop());
-        }
+        if (state.stream) state.stream.getTracks().forEach(track => track.stop());
         state.stream = null;
         state.recorder = null;
         state.chunks = [];
         state.recording = false;
-        state.startedAt = 0;
         updateRecordButton();
         if (cancelled) setStatus('Ready');
     }
@@ -357,9 +309,7 @@
             panel.style.top = `${event.clientY - offsetY}px`;
         });
 
-        window.addEventListener('mouseup', () => {
-            dragging = false;
-        });
+        window.addEventListener('mouseup', () => { dragging = false; });
     }
 
     function createUI() {
@@ -368,21 +318,8 @@
         const style = document.createElement('style');
         style.textContent = `
             :host { all: initial; }
-            #panel {
-                position: fixed;
-                top: 80px;
-                right: 20px;
-                width: 310px;
-                pointer-events: auto;
-                background: #0b0f0d;
-                color: #fff;
-                border: 1px solid #35ff83;
-                border-radius: 14px;
-                box-shadow: 0 18px 50px rgba(0,0,0,.55);
-                overflow: hidden;
-                font: 14px Arial, sans-serif;
-            }
-            #head { padding: 14px 16px; background: #101712; border-bottom: 1px solid #202b23; cursor: move; user-select:none; }
+            #panel { position:fixed; top:80px; right:20px; width:310px; pointer-events:auto; background:#0b0f0d; color:#fff; border:1px solid #35ff83; border-radius:14px; box-shadow:0 18px 50px rgba(0,0,0,.55); overflow:hidden; font:14px Arial,sans-serif; }
+            #head { padding:14px 16px; background:#101712; border-bottom:1px solid #202b23; cursor:move; user-select:none; }
             #title { color:#35ff83; font-weight:800; font-size:17px; }
             #sub { color:#748078; font-size:11px; margin-top:3px; }
             #body { padding:12px; }
@@ -407,10 +344,7 @@
         const panel = document.createElement('div');
         panel.id = 'panel';
         panel.innerHTML = `
-            <div id="head">
-                <div id="title">RON ClipTools</div>
-                <div id="sub">RON Labs • BuildNow.GG</div>
-            </div>
+            <div id="head"><div id="title">RON ClipTools</div><div id="sub">RON Labs • BuildNow.GG</div></div>
             <div id="body">
                 <button id="shot">Screenshot</button>
                 <button id="record">Record ${settings.duration}s Clip</button>
@@ -418,19 +352,12 @@
                 <button id="folder">Choose Save Folder</button>
                 <span id="folder-name">Browser Downloads</span>
                 <button id="website">RON Labs Clips</button>
-                <div class="small">Choose a folder once and clips/screenshots will be written there when your browser allows it.</div>
+                <div class="small">Your browser may block direct folder access in embedded game frames. If it does, ClipTools automatically uses Downloads.</div>
                 <div id="settings">
-                    <div class="row">Clip length <select id="duration">
-                        <option value="5">5 seconds</option>
-                        <option value="10">10 seconds</option>
-                        <option value="15">15 seconds</option>
-                        <option value="30">30 seconds</option>
-                        <option value="60">60 seconds</option>
-                        <option value="120">120 seconds</option>
-                    </select></div>
-                    <div class="row">Screenshot key <input id="shot-key" value="${escapeHTML(settings.screenshot)}"></div>
-                    <div class="row">Record key <input id="record-key" value="${escapeHTML(settings.record)}"></div>
-                    <div class="row">Window key <input id="panel-key" value="${escapeHTML(settings.panel)}"></div>
+                    <div class="row"><span>Clip length</span><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">120 seconds</option></select></div>
+                    <div class="row"><span>Screenshot key</span><input id="shot-key" value="${escapeHTML(settings.screenshot)}"></div>
+                    <div class="row"><span>Record key</span><input id="record-key" value="${escapeHTML(settings.record)}"></div>
+                    <div class="row"><span>Window key</span><input id="panel-key" value="${escapeHTML(settings.panel)}"></div>
                 </div>
                 <div id="status">Ready</div>
             </div>
@@ -455,30 +382,16 @@
         const recordKey = shadow.querySelector('#record-key');
         const panelKey = shadow.querySelector('#panel-key');
 
-        shotKey.addEventListener('change', () => {
-            settings.screenshot = shotKey.value.trim() || 'F8';
-            shotKey.value = settings.screenshot;
-            saveSettings();
-        });
-        recordKey.addEventListener('change', () => {
-            settings.record = recordKey.value.trim() || 'F9';
-            recordKey.value = settings.record;
-            saveSettings();
-        });
-        panelKey.addEventListener('change', () => {
-            settings.panel = panelKey.value.trim() || 'F7';
-            panelKey.value = settings.panel;
-            saveSettings();
-        });
+        shotKey.addEventListener('change', () => { settings.screenshot = shotKey.value.trim() || 'F8'; saveSettings(); });
+        recordKey.addEventListener('change', () => { settings.record = recordKey.value.trim() || 'F9'; saveSettings(); });
+        panelKey.addEventListener('change', () => { settings.panel = panelKey.value.trim() || 'F7'; saveSettings(); });
 
         makeDraggable(panel, shadow.querySelector('#head'));
-        restoreFolderLabel();
     }
 
     document.addEventListener('keydown', event => {
-        if (event.defaultPrevented) return;
+        if (event.defaultPrevented || event.repeat) return;
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target?.isContentEditable) return;
-        if (event.repeat) return;
 
         if (keyMatches(event, settings.screenshot)) {
             event.preventDefault();
@@ -496,6 +409,7 @@
         if (!document.body || document.getElementById(ID)) return;
         document.body.appendChild(root);
         createUI();
+        updateFolderLabel();
     }
 
     if (document.readyState === 'loading') {

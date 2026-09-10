@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts/cliptools
-// @version      15.0.0
+// @version      16.0.0
 // @description  RON ClipTools - instant 15 second replay clips for BuildNow.GG
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
@@ -21,25 +21,26 @@
 (function () {
     'use strict';
 
-    var ID = '__RON_CLIPTOOLS_V1500__';
+    var ID = '__RON_CLIPTOOLS_V1600__';
     var CLIP_SECONDS = 15;
-    var BUFFER_SECONDS = 18;
+    var KEEP_SECONDS = 20;
     var FPS = 30;
     var BITRATE = 5000000;
 
+    var M = null;
     var panel = null;
     var settingsPanel = null;
-    var M = null;
-    var liveOutput = null;
-    var liveSource = null;
-    var packets = [];
-    var recording = false;
+    var output = null;
+    var source = null;
+    var running = false;
     var starting = false;
     var generation = 0;
-    var restartTimer = null;
-    var exportQueue = Promise.resolve();
-    var encoderMeta = null;
-    var frameIndex = 0;
+    var retryTimer = null;
+    var frame = 0;
+    var header = null;
+    var pendingMoof = null;
+    var segments = [];
+    var lastSegmentTime = -Infinity;
 
     var settings = { clip: 'F9', shot: 'F8', panel: 'F7' };
     try {
@@ -56,40 +57,41 @@
         } catch (_) {}
     }
 
-    function status(text, temporary) {
-        if (!panel) return;
-        var el = panel.querySelector('.ron-status');
-        if (!el) return;
-        el.textContent = text;
-        if (temporary) {
-            clearTimeout(status.timer);
-            status.timer = setTimeout(function () { el.textContent = 'Ready'; }, 1800);
-        }
-    }
-
     function canvas() {
         var all = document.getElementsByTagName('canvas');
-        var best = null, size = 0;
+        var best = null;
+        var area = 0;
         for (var i = 0; i < all.length; i++) {
             var c = all[i];
-            var area = (c.width || 0) * (c.height || 0);
-            if (area > size) { size = area; best = c; }
+            var a = (c.width || 0) * (c.height || 0);
+            if (a > area) { area = a; best = c; }
         }
         return best;
     }
 
-    function fileName(prefix, ext) {
+    function name(prefix, ext) {
         var d = new Date();
         function p(n) { return String(n).padStart(2, '0'); }
         return prefix + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + '-' + p(d.getMinutes()) + '-' + p(d.getSeconds()) + ext;
     }
 
-    function download(blob, name) {
-        if (!blob || !blob.size) throw new Error('empty');
+    function setStatus(text, temp) {
+        if (!panel) return;
+        var e = panel.querySelector('.ron-status');
+        if (!e) return;
+        e.textContent = text;
+        if (temp) {
+            clearTimeout(setStatus.timer);
+            setStatus.timer = setTimeout(function () { e.textContent = 'Ready'; }, 1800);
+        }
+    }
+
+    function download(blob, filename) {
+        if (!blob || !blob.size) throw new Error('empty file');
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
-        a.download = name;
+        a.download = filename;
         a.rel = 'noopener';
         a.style.display = 'none';
         document.body.appendChild(a);
@@ -100,31 +102,30 @@
 
     function screenshot() {
         var c = canvas();
-        if (!c) return status('Screenshot unavailable', true);
+        if (!c) return setStatus('Screenshot unavailable', true);
         try {
-            c.toBlob(function (b) {
+            c.toBlob(function (blob) {
                 try {
-                    if (!b) throw new Error();
-                    download(b, fileName('RON-Screenshot-', '.png'));
-                    status('Saved', true);
-                } catch (_) { status('Screenshot failed', true); }
+                    if (!blob) throw new Error('png');
+                    download(blob, name('RON-Screenshot-', '.png'));
+                    setStatus('Saved', true);
+                } catch (_) { setStatus('Screenshot failed', true); }
             }, 'image/png');
-        } catch (_) { status('Screenshot failed', true); }
+        } catch (_) { setStatus('Screenshot failed', true); }
     }
 
     function loadMediabunny() {
         if (M) return Promise.resolve(M);
         return new Promise(function (resolve, reject) {
-            var existing = unsafeWindow && unsafeWindow.Mediabunny;
-            if (existing) { M = existing; resolve(existing); return; }
-            var finished = false;
+            var done = false;
             var timer = setTimeout(function () {
-                if (!finished) { finished = true; reject(new Error('media')); }
-            }, 12000);
+                if (!done) { done = true; reject(new Error('Mediabunny')); }
+            }, 15000);
+
             function check() {
                 var api = unsafeWindow && unsafeWindow.Mediabunny;
-                if (api && !finished) {
-                    finished = true;
+                if (api && !done) {
+                    done = true;
                     clearTimeout(timer);
                     M = api;
                     resolve(api);
@@ -132,95 +133,100 @@
                 }
                 return !!api;
             }
-            function textFallback() {
-                if (finished || check()) return;
+
+            function fallbackText() {
+                if (done || check()) return;
                 try {
                     var text = GM_getResourceText('mediabunny');
                     if (!text) throw new Error();
                     GM_addElement(document.documentElement, 'script', { textContent: text });
                     setTimeout(function () {
-                        if (!check() && !finished) {
-                            finished = true;
+                        if (!check() && !done) {
+                            done = true;
                             clearTimeout(timer);
-                            reject(new Error('media'));
+                            reject(new Error('Mediabunny'));
                         }
-                    }, 2000);
+                    }, 2500);
                 } catch (_) {
-                    if (!finished) { finished = true; clearTimeout(timer); reject(new Error('media')); }
+                    if (!done) { done = true; clearTimeout(timer); reject(new Error('Mediabunny')); }
                 }
             }
+
             var url = '';
             try { url = GM_getResourceURL('mediabunny'); } catch (_) {}
-            if (!url) return textFallback();
+            if (!url) return fallbackText();
+
             try {
                 var script = GM_addElement(document.documentElement, 'script', { src: url });
-                var fallback = setTimeout(function () { if (!check() && !finished) textFallback(); }, 3500);
+                var fallback = setTimeout(function () { if (!check() && !done) fallbackText(); }, 4000);
                 script.onload = function () {
                     clearTimeout(fallback);
-                    setTimeout(function () { if (!check() && !finished) textFallback(); }, 0);
+                    setTimeout(function () { if (!check() && !done) fallbackText(); }, 50);
                 };
-                script.onerror = function () { clearTimeout(fallback); textFallback(); };
-            } catch (_) { textFallback(); }
+                script.onerror = function () { clearTimeout(fallback); fallbackText(); };
+            } catch (_) { fallbackText(); }
         });
     }
 
-    function endTime(item) { return item.p.timestamp + item.p.duration; }
-
-    function newest(list) {
-        var n = -Infinity;
-        for (var i = 0; i < list.length; i++) n = Math.max(n, endTime(list[i]));
-        return n;
+    function clearBuffer() {
+        segments = [];
+        header = null;
+        pendingMoof = null;
+        lastSegmentTime = -Infinity;
     }
 
-    function trim() {
-        if (!packets.length) return;
-        var cutoff = newest(packets) - BUFFER_SECONDS;
+    function copyBytes(data) {
+        return new Uint8Array(data);
+    }
+
+    function trimSegments() {
+        if (!segments.length) return;
+        var newest = segments[segments.length - 1].time;
+        var cutoff = newest - KEEP_SECONDS;
         var first = 0;
-        while (first < packets.length && packets[first].p.timestamp < cutoff) first++;
-        if (first > 0) {
-            while (first > 0 && first < packets.length && packets[first].p.type !== 'key') first--;
-            packets.splice(0, first);
-        }
+        while (first < segments.length && segments[first].time < cutoff) first++;
+        if (first) segments.splice(0, first);
     }
 
-    async function stopLive() {
+    async function stopEncoder() {
+        running = false;
         generation++;
-        recording = false;
-        var source = liveSource;
-        var output = liveOutput;
-        liveSource = null;
-        liveOutput = null;
-        try { if (source) source.close(); } catch (_) {}
-        try { if (output) await output.cancel(); } catch (_) {}
+        var s = source;
+        var o = output;
+        source = null;
+        output = null;
+        try { if (s) s.close(); } catch (_) {}
+        try { if (o) await o.cancel(); } catch (_) {}
     }
 
-    function restartLater(delay) {
-        if (restartTimer || recording || starting) return;
-        restartTimer = setTimeout(function () {
-            restartTimer = null;
-            startBuffer();
-        }, delay || 500);
+    function retry() {
+        if (retryTimer || running || starting) return;
+        retryTimer = setTimeout(function () {
+            retryTimer = null;
+            start();
+        }, 1200);
     }
 
-    async function capture(c, myGeneration) {
-        frameIndex = 0;
-        while (recording && liveSource && myGeneration === generation) {
+    async function feed(c, myGeneration) {
+        frame = 0;
+        while (running && source && myGeneration === generation) {
             var started = performance.now();
             try {
-                await liveSource.add(frameIndex / FPS, 1 / FPS);
-                frameIndex++;
-            } catch (_) {
-                await stopLive();
-                restartLater(500);
+                await source.add(frame / FPS, 1 / FPS);
+                frame++;
+            } catch (error) {
+                console.error('[RON ClipTools] capture stopped:', error);
+                await stopEncoder();
+                retry();
                 return;
             }
-            var wait = Math.max(0, 1000 / FPS - (performance.now() - started));
-            if (wait) await new Promise(function (r) { setTimeout(r, wait); });
+            var delay = Math.max(0, 1000 / FPS - (performance.now() - started));
+            if (delay) await new Promise(function (r) { setTimeout(r, delay); });
         }
     }
 
-    async function startBuffer() {
-        if (recording || starting) return;
+    async function start() {
+        if (running || starting) return;
         starting = true;
         try {
             var c = canvas();
@@ -228,147 +234,121 @@
             if (!window.VideoEncoder || !window.VideoFrame) throw new Error('video');
 
             var api = await loadMediabunny();
-            if (!api || !api.Output || !api.CanvasSource || !api.EncodedVideoPacketSource || !api.Mp4OutputFormat || !api.BufferTarget || !api.NullTarget || !api.Quality) throw new Error('media');
+            if (!api || !api.Output || !api.CanvasSource || !api.Mp4OutputFormat || !api.NullTarget || !api.Quality) throw new Error('media');
 
             var quality = new api.Quality({ bitrate: BITRATE });
             if (api.canEncodeVideo) {
-                var can = await api.canEncodeVideo('avc', {
+                var supported = await api.canEncodeVideo('avc', {
                     width: c.width,
                     height: c.height,
                     quality: quality,
                     framerate: FPS,
                     latencyMode: 'realtime'
                 });
-                if (!can) throw new Error('codec');
+                if (!supported) throw new Error('codec');
             }
 
-            packets = [];
-            encoderMeta = null;
+            clearBuffer();
 
-            var output = new api.Output({
-                format: new api.Mp4OutputFormat({ fastStart: false }),
-                target: new api.NullTarget()
+            var localMoof = null;
+            var format = new api.Mp4OutputFormat({
+                fastStart: 'fragmented',
+                minimumFragmentDuration: 1,
+                onFtyp: function (data) {
+                    header = { ftyp: copyBytes(data), moov: null };
+                },
+                onMoov: function (data) {
+                    if (!header) header = { ftyp: null, moov: null };
+                    header.moov = copyBytes(data);
+                },
+                onMoof: function (data, position, timestamp) {
+                    localMoof = { data: copyBytes(data), time: Number(timestamp) || 0 };
+                },
+                onMdat: function (data) {
+                    if (!localMoof) return;
+                    var mdat = copyBytes(data);
+                    var joined = new Uint8Array(localMoof.data.length + mdat.length);
+                    joined.set(localMoof.data, 0);
+                    joined.set(mdat, localMoof.data.length);
+                    segments.push({ time: localMoof.time, data: joined });
+                    lastSegmentTime = localMoof.time;
+                    trimSegments();
+                    localMoof = null;
+                }
             });
 
-            var source = new api.CanvasSource(c, {
+            var out = new api.Output({ format: format, target: new api.NullTarget() });
+            var src = new api.CanvasSource(c, {
                 codec: 'avc',
                 quality: quality,
                 latencyMode: 'realtime',
                 hardwareAcceleration: 'prefer-hardware',
-                keyFrameInterval: 0.25,
-                alpha: 'discard',
-                onEncodedPacket: function (packet, meta) {
-                    try {
-                        packets.push({ p: packet.clone(), meta: meta || null });
-                        if (!encoderMeta && meta && meta.decoderConfig) encoderMeta = meta;
-                        trim();
-                    } catch (_) {}
-                }
+                keyFrameInterval: 1,
+                alpha: 'discard'
             });
 
-            output.addVideoTrack(source, { frameRate: FPS });
-            await output.start();
-            liveOutput = output;
-            liveSource = source;
-            recording = true;
+            out.addVideoTrack(src, { frameRate: FPS });
+            await out.start();
+
+            output = out;
+            source = src;
+            running = true;
             starting = false;
             var myGeneration = ++generation;
-            capture(c, myGeneration);
-        } catch (_) {
+            setStatus('Ready', false);
+            feed(c, myGeneration);
+        } catch (error) {
+            console.error('[RON ClipTools] start failed:', error);
             starting = false;
-            recording = false;
-            restartLater(1800);
+            running = false;
+            setStatus('Getting ready', false);
+            retry();
         }
     }
 
-    function clipPackets(snapshot) {
-        if (!snapshot.length) return null;
-        var end = newest(snapshot);
-        var target = end - CLIP_SECONDS;
-        var start = -1;
-        var best = -Infinity;
-
-        for (var i = 0; i < snapshot.length; i++) {
-            var item = snapshot[i];
-            if (item.p.type === 'key' && item.p.timestamp <= target && item.p.timestamp > best) {
-                best = item.p.timestamp;
-                start = i;
-            }
-        }
-
-        if (start < 0) {
-            for (var j = 0; j < snapshot.length; j++) {
-                if (snapshot[j].p.type === 'key') { start = j; break; }
-            }
-        }
-        if (start < 0) return null;
-
-        var out = snapshot.slice(start);
-        out.sort(function (a, b) {
-            var as = typeof a.p.sequenceNumber === 'number' ? a.p.sequenceNumber : 0;
-            var bs = typeof b.p.sequenceNumber === 'number' ? b.p.sequenceNumber : 0;
-            if (as !== bs) return as - bs;
-            return a.p.timestamp - b.p.timestamp;
-        });
-        return out;
-    }
-
-    async function exportClip(snapshot) {
-        var chosen = clipPackets(snapshot);
-        if (!chosen || chosen.length < 2 || chosen[0].p.type !== 'key') throw new Error('clip');
-
-        var first = chosen[0];
-        var meta = first.meta || encoderMeta;
-        if (!meta || !meta.decoderConfig) throw new Error('metadata');
-
-        var target = new M.BufferTarget();
-        var output = new M.Output({
-            format: new M.Mp4OutputFormat({ fastStart: false }),
-            target: target
-        });
-        var source = new M.EncodedVideoPacketSource('avc');
-        output.addVideoTrack(source, {
-            frameRate: FPS,
-            decoderConfig: meta.decoderConfig
-        });
-        await output.start();
-
-        var base = first.p.timestamp;
-        for (var i = 0; i < chosen.length; i++) {
-            var item = chosen[i];
-            var packet = item.p.clone({ timestamp: Math.max(0, item.p.timestamp - base) });
-            await source.add(packet, i === 0 ? meta : undefined);
-        }
-
-        source.close();
-        await output.finalize();
-
-        var buffer = target.buffer;
-        if (!buffer || !buffer.byteLength) throw new Error('empty');
-
-        download(new Blob([buffer], { type: 'video/mp4' }), fileName('RON-Clip-15s-', '.mp4'));
-    }
-
-    function clip() {
-        if (!recording || !liveSource || packets.length < 2) {
-            status('Getting ready', true);
+    function saveClip() {
+        if (!running || !header || !header.ftyp || !header.moov || segments.length < 2) {
+            setStatus('Getting ready', true);
             return;
         }
-        var snapshot = packets.slice();
-        status('Saving...', false);
-        exportQueue = exportQueue.then(function () {
-            return exportClip(snapshot);
-        }).then(function () {
-            status('Saved', true);
-        }).catch(function (error) {
-            console.error('[RON ClipTools] clip export failed:', error);
-            status('Could not save', true);
-        });
+
+        var end = segments[segments.length - 1].time + 1;
+        var target = end - CLIP_SECONDS;
+        var first = 0;
+
+        while (first < segments.length && segments[first].time < target) first++;
+        if (first > 0) first--;
+        if (first >= segments.length) first = Math.max(0, segments.length - 1);
+
+        var chosen = segments.slice(first);
+        if (!chosen.length) {
+            setStatus('Getting ready', true);
+            return;
+        }
+
+        try {
+            var total = header.ftyp.length + header.moov.length;
+            for (var i = 0; i < chosen.length; i++) total += chosen[i].data.length;
+            var file = new Uint8Array(total);
+            var offset = 0;
+            file.set(header.ftyp, offset); offset += header.ftyp.length;
+            file.set(header.moov, offset); offset += header.moov.length;
+            for (var j = 0; j < chosen.length; j++) {
+                file.set(chosen[j].data, offset);
+                offset += chosen[j].data.length;
+            }
+
+            download(new Blob([file], { type: 'video/mp4' }), name('RON-Clip-15s-', '.mp4'));
+            setStatus('Saved', true);
+        } catch (error) {
+            console.error('[RON ClipTools] save failed:', error);
+            setStatus('Could not save', true);
+        }
     }
 
     function key(e) {
         if (e.code && /^F(?:[1-9]|1[0-2])$/.test(e.code)) return e.code;
-        return e.key ? e.key.toUpperCase() : '';
+        return e.key ? String(e.key).toUpperCase() : '';
     }
 
     function toggleSettings() {
@@ -376,7 +356,7 @@
         settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
     }
 
-    function ui() {
+    function buildUI() {
         if (!document.body || document.getElementById(ID)) return;
 
         panel = document.createElement('div');
@@ -385,76 +365,86 @@
             '<div class="head"><div><div class="title">RON ClipTools</div><div class="sub">BuildNow instant replay</div></div><button class="close">×</button></div>' +
             '<button class="action clip"><span>Clip last 15s</span><kbd class="clip-key">' + settings.clip + '</kbd></button>' +
             '<button class="action shot"><span>Screenshot</span><kbd class="shot-key">' + settings.shot + '</kbd></button>' +
-            '<button class="settings">Settings</button><div class="status ron-status">Ready</div>';
+            '<button class="settings">Settings</button>' +
+            '<div class="status ron-status">Getting ready</div>';
 
-        var css = document.createElement('style');
-        css.textContent =
+        var style = document.createElement('style');
+        style.textContent =
             '#' + ID + '{position:fixed!important;right:18px!important;top:76px!important;width:270px!important;z-index:2147483647!important;padding:11px!important;background:rgba(12,16,14,.97)!important;color:#f4f7f5!important;border:1px solid rgba(65,255,132,.24)!important;border-radius:16px!important;box-shadow:0 18px 55px rgba(0,0,0,.5)!important;backdrop-filter:blur(16px)!important;font:13px Arial,sans-serif!important}' +
             '#' + ID + ' *{box-sizing:border-box!important}' +
             '#' + ID + ' .head{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:4px 5px 11px!important}' +
             '#' + ID + ' .title{font-size:16px!important;font-weight:800!important}' +
             '#' + ID + ' .sub{margin-top:3px!important;color:#7d8982!important;font-size:10px!important}' +
-            '#' + ID + ' .close{border:0!important;background:transparent!important;color:#7d8982!important;font-size:20px!important;cursor:pointer!important}' +
-            '#' + ID + ' .action{width:100%!important;display:flex!important;align-items:center!important;justify-content:space-between!important;border-radius:10px!important;padding:11px 12px!important;margin:5px 0!important;cursor:pointer!important;font:inherit!important;text-align:left!important}' +
-            '#' + ID + ' .clip{border:0!important;background:#20aa5b!important;color:#fff!important;font-weight:800!important}' +
-            '#' + ID + ' .shot{border:1px solid rgba(255,255,255,.08)!important;background:#151c18!important;color:#e6ebe8!important}' +
-            '#' + ID + ' kbd{font:10px Arial,sans-serif!important;color:rgba(255,255,255,.65)!important;background:rgba(0,0,0,.18)!important;border-radius:5px!important;padding:3px 5px!important}' +
-            '#' + ID + ' .settings{display:block!important;margin:8px auto 1px!important;border:0!important;background:transparent!important;color:#68756d!important;font:10px Arial,sans-serif!important;cursor:pointer!important}' +
-            '#' + ID + ' .status{text-align:center!important;height:18px!important;padding-top:7px!important;color:#748078!important;font-size:10px!important}' +
-            '#' + ID + '_settings{position:fixed!important;right:300px!important;top:76px!important;width:245px!important;z-index:2147483647!important;padding:14px!important;background:rgba(12,16,14,.98)!important;color:#f4f7f5!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:14px!important;box-shadow:0 18px 55px rgba(0,0,0,.5)!important;font:12px Arial,sans-serif!important}' +
-            '#' + ID + '_settings .st{font-size:14px!important;font-weight:800!important;margin-bottom:10px!important}' +
-            '#' + ID + '_settings label{display:block!important;margin:9px 0!important;color:#a8b2ac!important}' +
-            '#' + ID + '_settings input{float:right!important;width:72px!important;padding:4px!important;border-radius:6px!important;border:1px solid #303933!important;background:#151c18!important;color:#fff!important;text-align:center!important}' +
-            '#' + ID + '_settings .save{margin-top:7px!important;border:0!important;border-radius:7px!important;padding:7px 11px!important;background:#20aa5b!important;color:#fff!important;cursor:pointer!important}';
-        document.documentElement.appendChild(css);
+            '#' + ID + ' button{font:inherit!important}' +
+            '#' + ID + ' .close{border:0!important;background:transparent!important;color:#8d9891!important;font-size:21px!important;cursor:pointer!important;width:28px!important;height:28px!important;border-radius:8px!important}' +
+            '#' + ID + ' .close:hover{background:rgba(255,255,255,.07)!important;color:#fff!important}' +
+            '#' + ID + ' .action{width:100%!important;display:flex!important;align-items:center!important;justify-content:space-between!important;margin:7px 0!important;padding:11px 12px!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:11px!important;background:rgba(255,255,255,.045)!important;color:#fff!important;cursor:pointer!important;text-align:left!important}' +
+            '#' + ID + ' .action:hover{background:rgba(65,255,132,.10)!important;border-color:rgba(65,255,132,.28)!important}' +
+            '#' + ID + ' kbd{padding:3px 6px!important;border-radius:6px!important;background:rgba(255,255,255,.09)!important;color:#aeb8b1!important;font-size:10px!important}' +
+            '#' + ID + ' .settings{width:100%!important;margin-top:4px!important;padding:9px!important;border:0!important;border-radius:9px!important;background:transparent!important;color:#7f8a83!important;cursor:pointer!important}' +
+            '#' + ID + ' .settings:hover{background:rgba(255,255,255,.05)!important;color:#fff!important}' +
+            '#' + ID + ' .status{padding:8px 4px 2px!important;color:#65e88d!important;font-size:10px!important;text-align:center!important}' +
+            '#' + ID + ' .ron-settings{margin-top:8px!important;padding-top:10px!important;border-top:1px solid rgba(255,255,255,.08)!important}' +
+            '#' + ID + ' .row{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin:8px 0!important;color:#aab3ad!important;font-size:11px!important}' +
+            '#' + ID + ' .row input{width:75px!important;padding:7px!important;border:1px solid rgba(255,255,255,.10)!important;border-radius:8px!important;background:rgba(255,255,255,.06)!important;color:#fff!important;text-align:center!important;outline:none!important}' +
+            '#' + ID + ' .save-settings{width:100%!important;margin-top:5px!important;padding:8px!important;border:0!important;border-radius:8px!important;background:#3df078!important;color:#07100a!important;font-weight:800!important;cursor:pointer!important}';
+
+        document.head && document.head.appendChild(style);
         document.body.appendChild(panel);
 
-        settingsPanel = document.createElement('div');
-        settingsPanel.id = ID + '_settings';
-        settingsPanel.style.display = 'none';
-        settingsPanel.innerHTML =
-            '<div class="st">Keyboard shortcuts</div>' +
-            '<label>Clip <input class="clip-input" value="' + settings.clip + '"></label>' +
-            '<label>Screenshot <input class="shot-input" value="' + settings.shot + '"></label>' +
-            '<label>Panel <input class="panel-input" value="' + settings.panel + '"></label>' +
-            '<button class="save">Save</button>';
-        document.body.appendChild(settingsPanel);
-
-        panel.querySelector('.clip').onclick = clip;
+        panel.querySelector('.close').onclick = function () { panel.style.display = 'none'; };
+        panel.querySelector('.clip').onclick = saveClip;
         panel.querySelector('.shot').onclick = screenshot;
         panel.querySelector('.settings').onclick = toggleSettings;
-        panel.querySelector('.close').onclick = function () {
-            panel.style.display = 'none';
-            settingsPanel.style.display = 'none';
-        };
 
-        settingsPanel.querySelector('.save').onclick = function () {
-            settings.clip = settingsPanel.querySelector('.clip-input').value.trim().toUpperCase() || 'F9';
-            settings.shot = settingsPanel.querySelector('.shot-input').value.trim().toUpperCase() || 'F8';
-            settings.panel = settingsPanel.querySelector('.panel-input').value.trim().toUpperCase() || 'F7';
+        settingsPanel = document.createElement('div');
+        settingsPanel.className = 'ron-settings';
+        settingsPanel.style.display = 'none';
+        settingsPanel.innerHTML =
+            '<div class="row"><span>Clip hotkey</span><input class="set-clip" value="' + settings.clip + '" maxlength="8"></div>' +
+            '<div class="row"><span>Screenshot hotkey</span><input class="set-shot" value="' + settings.shot + '" maxlength="8"></div>' +
+            '<div class="row"><span>Panel hotkey</span><input class="set-panel" value="' + settings.panel + '" maxlength="8"></div>' +
+            '<button class="save-settings">Save</button>';
+        panel.appendChild(settingsPanel);
+        settingsPanel.querySelector('.save-settings').onclick = function () {
+            var c = settingsPanel.querySelector('.set-clip').value.trim().toUpperCase();
+            var s = settingsPanel.querySelector('.set-shot').value.trim().toUpperCase();
+            var p = settingsPanel.querySelector('.set-panel').value.trim().toUpperCase();
+            if (c) settings.clip = c;
+            if (s) settings.shot = s;
+            if (p) settings.panel = p;
             saveSettings();
             panel.querySelector('.clip-key').textContent = settings.clip;
             panel.querySelector('.shot-key').textContent = settings.shot;
-            toggleSettings();
+            settingsPanel.querySelector('.set-clip').value = settings.clip;
+            settingsPanel.querySelector('.set-shot').value = settings.shot;
+            settingsPanel.querySelector('.set-panel').value = settings.panel;
+            setStatus('Saved', true);
         };
     }
 
-    document.addEventListener('keydown', function (e) {
+    function keyboard(e) {
+        if (!panel) return;
         var k = key(e);
         if (!k) return;
-        if (k === settings.clip) { e.preventDefault(); clip(); }
-        else if (k === settings.shot) { e.preventDefault(); screenshot(); }
-        else if (k === settings.panel) {
-            e.preventDefault();
-            if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-        }
-    }, true);
-
-    function boot() {
-        if (!document.body) return setTimeout(boot, 100);
-        ui();
-        startBuffer();
+        if (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+        if (k === settings.clip) { e.preventDefault(); saveClip(); return; }
+        if (k === settings.shot) { e.preventDefault(); screenshot(); return; }
+        if (k === settings.panel) { e.preventDefault(); panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; return; }
     }
 
-    boot();
+    document.addEventListener('keydown', keyboard, true);
+
+    function boot() {
+        buildUI();
+        start();
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+    else boot();
+
+    setInterval(function () {
+        if (!running && !starting) start();
+        if (!panel && document.body) buildUI();
+    }, 3000);
 })();

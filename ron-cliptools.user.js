@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts
-// @version      4.2.0
+// @version      4.3.0
 // @description  RON ClipTools for BuildNow.GG - screenshots, configurable clips and recording
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
@@ -48,63 +48,40 @@
     const setStatus = text => { const e=shadow.querySelector('#status'); if(e)e.textContent=text; };
     const escapeHTML = v => String(v).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-    function updateFolderLabel() {
-        const e=shadow.querySelector('#folder-name');
-        if(e) e.textContent=state.folderHandle?.name || 'Browser Downloads';
+    // A userscript inside BuildNow cannot reliably get a persistent Windows folder.
+    // Instead of showing the misleading "browser blocked it" error, ClipTools uses
+    // the browser's own download system. If Edge/Chrome is configured to ask where
+    // each file is saved, the browser will show its normal folder picker.
+    function chooseSaveFolder() {
+        state.folderHandle = null;
+        updateFolderLabel();
+        setStatus('Using browser Downloads');
     }
 
-    async function chooseSaveFolder() {
-        // File System Access is deliberately optional. Embedded BuildNow/CrazyGames
-        // frames can reject it even when the API exists. Never treat that as a fatal error.
-        if (typeof window.showDirectoryPicker !== 'function') {
-            state.folderHandle = null;
-            updateFolderLabel();
-            setStatus('Folder access unavailable here — using Downloads');
-            return;
-        }
-        try {
-            // Calling this directly from the button handler preserves the required user gesture.
-            const handle = await window.showDirectoryPicker();
-            if (!handle) throw new Error('No folder returned');
-            state.folderHandle = handle;
-            updateFolderLabel();
-            setStatus(`Folder selected: ${handle.name || 'selected folder'}`);
-        } catch (err) {
-            console.warn('[RON ClipTools] Folder picker unavailable:', err);
-            state.folderHandle = null;
-            updateFolderLabel();
-            if (err?.name === 'AbortError') setStatus('Folder selection cancelled — using Downloads');
-            else setStatus('Folder access is blocked here — using Downloads');
-        }
+    function updateFolderLabel() {
+        const e=shadow.querySelector('#folder-name');
+        if(e)e.textContent='Browser Downloads';
     }
 
     function browserDownload(blob,name) {
+        if(!blob || !blob.size) return setStatus('Nothing to save');
         const url=URL.createObjectURL(blob);
         const a=document.createElement('a');
-        a.href=url; a.download=name; a.style.display='none';
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(()=>URL.revokeObjectURL(url),10000);
-        setStatus(`Downloaded ${name}`);
+        a.href=url;
+        a.download=name;
+        a.rel='noopener';
+        a.style.display='none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url),15000);
+        setStatus(`Saved ${name} to browser Downloads`);
     }
 
     async function saveBlob(blob,name) {
-        if(!blob || !blob.size) return setStatus('Nothing to save');
-        if(state.folderHandle) {
-            try {
-                // Do not request permission again unless necessary. A request made outside
-                // a user gesture can itself be rejected by browsers.
-                const fileHandle=await state.folderHandle.getFileHandle(name,{create:true});
-                const writable=await fileHandle.createWritable();
-                await writable.write(blob);
-                await writable.close();
-                setStatus(`Saved to ${state.folderHandle.name || 'selected folder'}`);
-                return;
-            } catch(err) {
-                console.warn('[RON ClipTools] Direct folder save failed:',err);
-                state.folderHandle=null;
-                updateFolderLabel();
-            }
-        }
+        // Always use the browser download mechanism here. This is the reliable path
+        // from BuildNow's embedded/cross-origin game environment and never triggers
+        // a blocked File System Access API dialog.
         browserDownload(blob,name);
     }
 
@@ -113,6 +90,7 @@
         cs.sort((a,b)=>(b.width*b.height)-(a.width*a.height));
         return cs[0]||null;
     }
+
     function screenshot() {
         const c=getGameCanvas();
         if(!c) return setStatus('No game canvas found');
@@ -121,15 +99,22 @@
                 if(!blob)return setStatus('Screenshot failed');
                 void saveBlob(blob,`RON-Screenshot-${fileTime()}.png`);
             },'image/png');
-        } catch(err) { console.error('[RON ClipTools]',err); setStatus('Canvas screenshot unavailable'); }
+        } catch(err) {
+            console.error('[RON ClipTools]',err);
+            setStatus('Canvas screenshot unavailable');
+        }
     }
+
     function getSupportedMimeType() {
         if(!window.MediaRecorder)return '';
-        return ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||'';
+        return ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
+            .find(t=>MediaRecorder.isTypeSupported(t))||'';
     }
+
     async function startRecording() {
         if(state.recording)return;
-        if(!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder)return setStatus('Screen recording is not supported here');
+        if(!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder)
+            return setStatus('Screen recording is not supported here');
         try {
             state.stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
             const type=getSupportedMimeType();
@@ -137,13 +122,18 @@
             state.chunks=[];
             state.recorder.ondataavailable=e=>{if(e.data?.size)state.chunks.push(e.data);};
             state.recorder.onstop=async()=>{
-                const r=state.recorder, blob=new Blob(state.chunks,{type:r?.mimeType||'video/webm'});
+                const r=state.recorder;
+                const blob=new Blob(state.chunks,{type:r?.mimeType||'video/webm'});
                 const name=`RON-Clip-${fileTime()}.webm`;
-                clearClipTimer(); cleanupRecording(false); await saveBlob(blob,name);
+                clearClipTimer();
+                cleanupRecording(false);
+                await saveBlob(blob,name);
             };
             const track=state.stream.getVideoTracks()[0];
             if(track)track.addEventListener('ended',()=>{if(state.recording)stopRecording();},{once:true});
-            state.recorder.start(250); state.recording=true; updateRecordButton();
+            state.recorder.start(250);
+            state.recording=true;
+            updateRecordButton();
             setStatus(`Recording ${settings.duration}s clip...`);
             state.timer=setTimeout(()=>{if(state.recording)stopRecording();},settings.duration*1000);
         } catch(err) {
@@ -152,23 +142,42 @@
             setStatus(err?.name==='NotAllowedError'?'Screen capture permission denied':'Recording cancelled');
         }
     }
+
     function clearClipTimer(){if(state.timer)clearTimeout(state.timer);state.timer=null;}
-    function stopRecording(){clearClipTimer();if(!state.recorder)return cleanupRecording(true);if(state.recorder.state!=='inactive')state.recorder.stop();else cleanupRecording(true);}
+    function stopRecording(){
+        clearClipTimer();
+        if(!state.recorder)return cleanupRecording(true);
+        if(state.recorder.state!=='inactive')state.recorder.stop();
+        else cleanupRecording(true);
+    }
     function cleanupRecording(cancelled){
-        clearClipTimer(); if(state.stream)state.stream.getTracks().forEach(t=>t.stop());
-        state.stream=null;state.recorder=null;state.chunks=[];state.recording=false;updateRecordButton();
+        clearClipTimer();
+        if(state.stream)state.stream.getTracks().forEach(t=>t.stop());
+        state.stream=null;state.recorder=null;state.chunks=[];state.recording=false;
+        updateRecordButton();
         if(cancelled)setStatus('Ready');
     }
     function updateRecordButton(){
-        const b=shadow.querySelector('#record'); if(b)b.textContent=state.recording?'Stop Clip':`Record ${settings.duration}s Clip`;
-        const t=shadow.querySelector('#record-timer'); if(t)t.textContent=state.recording?'Recording...':'Ready';
+        const b=shadow.querySelector('#record');
+        if(b)b.textContent=state.recording?'Stop Clip':`Record ${settings.duration}s Clip`;
+        const t=shadow.querySelector('#record-timer');
+        if(t)t.textContent=state.recording?'Recording...':'Ready';
     }
     function togglePanel(){const p=shadow.querySelector('#panel');if(p)p.style.display=p.style.display==='none'?'':'none';}
     function keyMatches(e,k){return e.key.toLowerCase()===String(k).toLowerCase();}
+
     function makeDraggable(panel,handle){
         let dragging=false,ox=0,oy=0;
-        handle.addEventListener('mousedown',e=>{if(e.button!==0)return;dragging=true;const r=panel.getBoundingClientRect();ox=e.clientX-r.left;oy=e.clientY-r.top;panel.style.left=`${r.left}px`;panel.style.top=`${r.top}px`;panel.style.right='auto';});
-        window.addEventListener('mousemove',e=>{if(dragging){panel.style.left=`${e.clientX-ox}px`;panel.style.top=`${e.clientY-oy}px`;}});
+        handle.addEventListener('mousedown',e=>{
+            if(e.button!==0)return;
+            dragging=true;
+            const r=panel.getBoundingClientRect();
+            ox=e.clientX-r.left;oy=e.clientY-r.top;
+            panel.style.left=`${r.left}px`;panel.style.top=`${r.top}px`;panel.style.right='auto';
+        });
+        window.addEventListener('mousemove',e=>{
+            if(dragging){panel.style.left=`${e.clientX-ox}px`;panel.style.top=`${e.clientY-oy}px`;}
+        });
         window.addEventListener('mouseup',()=>dragging=false);
     }
 
@@ -176,12 +185,43 @@
         if(!document.body||shadow.querySelector('#panel'))return;
         const style=document.createElement('style');
         style.textContent=`
-        :host{all:initial}#panel{position:fixed;top:80px;right:20px;width:310px;pointer-events:auto;background:#0b0f0d;color:#fff;border:1px solid #35ff83;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55);overflow:hidden;font:14px Arial,sans-serif}#head{padding:14px 16px;background:#101712;border-bottom:1px solid #202b23;cursor:move;user-select:none}#title{color:#35ff83;font-weight:800;font-size:17px}#sub{color:#748078;font-size:11px;margin-top:3px}#body{padding:12px}button{width:100%;border:0;border-radius:9px;padding:11px;margin-bottom:8px;background:#1b241e;color:#fff;font-weight:700;cursor:pointer}button:hover{background:#26362b}#shot{background:#168c46}#shot:hover{background:#1cab58}#record{background:#214d32}#folder{background:#151d18}#website{background:#35ff83;color:#061008}#settings{border-top:1px solid #202b23;margin-top:8px;padding-top:8px}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#aab5ae;font-size:12px;margin:8px 0}input,select{width:94px;box-sizing:border-box;background:#080b09;color:#fff;border:1px solid #303b33;border-radius:6px;padding:6px;text-align:center}select{text-align:left}#folder-name{display:block;color:#35ff83;font-size:11px;margin:2px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#record-timer{color:#35ff83;text-align:center;font-size:11px;margin:-2px 0 8px;min-height:13px}#status{color:#6f7b73;text-align:center;font-size:11px;padding-top:3px;min-height:14px}.small{color:#657168;font-size:10px;line-height:1.4;margin:4px 0 8px}`;
+        :host{all:initial}
+        #panel{position:fixed;top:80px;right:20px;width:310px;pointer-events:auto;background:#0b0f0d;color:#fff;border:1px solid #35ff83;border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55);overflow:hidden;font:14px Arial,sans-serif}
+        #head{padding:14px 16px;background:#101712;border-bottom:1px solid #202b23;cursor:move;user-select:none}
+        #title{color:#35ff83;font-weight:800;font-size:17px}#sub{color:#748078;font-size:11px;margin-top:3px}
+        #body{padding:12px}button{width:100%;border:0;border-radius:9px;padding:11px;margin-bottom:8px;background:#1b241e;color:#fff;font-weight:700;cursor:pointer}
+        button:hover{background:#26362b}#shot{background:#168c46}#shot:hover{background:#1cab58}#record{background:#214d32}#folder{background:#151d18}#website{background:#35ff83;color:#061008}
+        #settings{border-top:1px solid #202b23;margin-top:8px;padding-top:8px}.row{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#aab5ae;font-size:12px;margin:8px 0}
+        input,select{width:94px;box-sizing:border-box;background:#080b09;color:#fff;border:1px solid #303b33;border-radius:6px;padding:6px;text-align:center}select{text-align:left}
+        #folder-name{display:block;color:#35ff83;font-size:11px;margin:2px 0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        #record-timer{color:#35ff83;text-align:center;font-size:11px;margin:-2px 0 8px;min-height:13px}
+        #status{color:#6f7b73;text-align:center;font-size:11px;padding-top:3px;min-height:14px}.small{color:#657168;font-size:10px;line-height:1.4;margin:4px 0 8px}
+        `;
         shadow.appendChild(style);
-        const panel=document.createElement('div'); panel.id='panel';
-        panel.innerHTML=`<div id="head"><div id="title">RON ClipTools</div><div id="sub">RON Labs • BuildNow.GG</div></div><div id="body"><button id="shot">Screenshot</button><button id="record">Record ${settings.duration}s Clip</button><div id="record-timer">Ready</div><button id="folder">Choose Save Folder</button><span id="folder-name">Browser Downloads</span><button id="website">RON Labs Clips</button><div class="small">Folder saving is optional. If BuildNow blocks folder access, files automatically go to your normal Downloads folder.</div><div id="settings"><div class="row"><span>Clip length</span><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">120 seconds</option></select></div><div class="row"><span>Screenshot key</span><input id="shot-key" value="${escapeHTML(settings.screenshot)}"></div><div class="row"><span>Record key</span><input id="record-key" value="${escapeHTML(settings.record)}"></div><div class="row"><span>Window key</span><input id="panel-key" value="${escapeHTML(settings.panel)}"></div></div><div id="status">Ready</div></div>`;
+        const panel=document.createElement('div');panel.id='panel';
+        panel.innerHTML=`
+        <div id="head"><div id="title">RON ClipTools</div><div id="sub">RON Labs • BuildNow.GG</div></div>
+        <div id="body">
+          <button id="shot">Screenshot</button>
+          <button id="record">Record ${settings.duration}s Clip</button>
+          <div id="record-timer">Ready</div>
+          <button id="folder">Save Location</button>
+          <span id="folder-name">Browser Downloads</span>
+          <button id="website">RON Labs Clips</button>
+          <div class="small">Clips and screenshots use your browser's normal download system. To choose a folder, enable your browser's “Ask where to save each file” setting.</div>
+          <div id="settings">
+            <div class="row"><span>Clip length</span><select id="duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">120 seconds</option></select></div>
+            <div class="row"><span>Screenshot key</span><input id="shot-key" value="${escapeHTML(settings.screenshot)}"></div>
+            <div class="row"><span>Record key</span><input id="record-key" value="${escapeHTML(settings.record)}"></div>
+            <div class="row"><span>Window key</span><input id="panel-key" value="${escapeHTML(settings.panel)}"></div>
+          </div>
+          <div id="status">Ready</div>
+        </div>`;
         shadow.appendChild(panel);
-        const duration=shadow.querySelector('#duration'); duration.value=String(settings.duration); duration.addEventListener('change',()=>{settings.duration=Number(duration.value)||15;saveSettings();updateRecordButton();setStatus(`Clip length set to ${settings.duration}s`);});
+
+        const duration=shadow.querySelector('#duration');
+        duration.value=String(settings.duration);
+        duration.addEventListener('change',()=>{settings.duration=Number(duration.value)||15;saveSettings();updateRecordButton();setStatus(`Clip length set to ${settings.duration}s`);});
         shadow.querySelector('#shot').addEventListener('click',screenshot);
         shadow.querySelector('#record').addEventListener('click',()=>state.recording?stopRecording():startRecording());
         shadow.querySelector('#folder').addEventListener('click',chooseSaveFolder);
@@ -201,6 +241,9 @@
         else if(keyMatches(e,settings.panel)){e.preventDefault();togglePanel();}
     },false);
 
-    function mount(){if(!document.body||document.getElementById(ID))return;document.body.appendChild(root);createUI();}
+    function mount(){
+        if(!document.body||document.getElementById(ID))return;
+        document.body.appendChild(root);createUI();
+    }
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();

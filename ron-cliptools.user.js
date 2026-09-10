@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts/cliptools
-// @version      11.1.0
-// @description  RON ClipTools - always-on H.264 MP4 replay clips for BuildNow.GG
+// @version      12.0.0
+// @description  RON ClipTools - screenshot and instant replay clips for BuildNow.GG
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
 // @supportURL   https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/issues
@@ -21,40 +21,50 @@
 (function () {
     'use strict';
 
-    var ID = '__RON_CLIPTOOLS_V1110__';
+    var ID = '__RON_CLIPTOOLS_V1200__';
     var panel = null;
+    var settingsPanel = null;
     var M = null;
-    var live = null;
-    var source = null;
+    var liveOutput = null;
+    var liveSource = null;
     var packets = [];
     var firstMeta = null;
     var recording = false;
+    var starting = false;
     var exporting = false;
     var restartTimer = null;
     var captureLoop = false;
     var frameIndex = 0;
     var bufferSeconds = 130;
+    var exportQueue = Promise.resolve();
 
     var settings = { shot: 'F8', clip: 'F9', panel: 'F7', duration: 15 };
     try {
-        settings.shot = localStorage.getItem('ron_cliptools_v11_shot') || 'F8';
-        settings.clip = localStorage.getItem('ron_cliptools_v11_clip') || 'F9';
-        settings.panel = localStorage.getItem('ron_cliptools_v11_panel') || 'F7';
-        settings.duration = Number(localStorage.getItem('ron_cliptools_v11_duration')) || 15;
+        settings.shot = localStorage.getItem('ron_cliptools_v12_shot') || 'F8';
+        settings.clip = localStorage.getItem('ron_cliptools_v12_clip') || 'F9';
+        settings.panel = localStorage.getItem('ron_cliptools_v12_panel') || 'F7';
+        settings.duration = Number(localStorage.getItem('ron_cliptools_v12_duration')) || 15;
     } catch (_) {}
-
-    function status(text) {
-        var e = panel && panel.querySelector('#r111status');
-        if (e) e.textContent = text;
-    }
 
     function saveSettings() {
         try {
-            localStorage.setItem('ron_cliptools_v11_shot', settings.shot);
-            localStorage.setItem('ron_cliptools_v11_clip', settings.clip);
-            localStorage.setItem('ron_cliptools_v11_panel', settings.panel);
-            localStorage.setItem('ron_cliptools_v11_duration', String(settings.duration));
+            localStorage.setItem('ron_cliptools_v12_shot', settings.shot);
+            localStorage.setItem('ron_cliptools_v12_clip', settings.clip);
+            localStorage.setItem('ron_cliptools_v12_panel', settings.panel);
+            localStorage.setItem('ron_cliptools_v12_duration', String(settings.duration));
         } catch (_) {}
+    }
+
+    function setStatus(text, temporary) {
+        if (!panel) return;
+        var e = panel.querySelector('.ron-status');
+        if (e) e.textContent = text;
+        if (temporary) {
+            clearTimeout(setStatus.timer);
+            setStatus.timer = setTimeout(function () {
+                if (e && !exporting) e.textContent = 'Ready';
+            }, 2200);
+        }
     }
 
     function getCanvas() {
@@ -75,7 +85,7 @@
     }
 
     function saveBlob(blob, name) {
-        if (!blob || !blob.size) return status('Nothing to save');
+        if (!blob || !blob.size) return setStatus('Nothing to save', true);
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
@@ -85,26 +95,23 @@
         a.click();
         a.remove();
         setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-        status('Saved ' + name);
+        setStatus('Saved to Downloads', true);
     }
 
     function screenshot() {
         var c = getCanvas();
-        if (!c) return status('No BuildNow canvas found');
+        if (!c) return setStatus('Screenshot unavailable', true);
         try {
             c.toBlob(function (blob) {
                 if (blob) saveBlob(blob, filename('RON-Screenshot-', '.png'));
-                else status('Screenshot failed');
+                else setStatus('Screenshot failed', true);
             }, 'image/png');
         } catch (e) {
             console.error('[RON ClipTools]', e);
-            status('Screenshot unavailable');
+            setStatus('Screenshot failed', true);
         }
     }
 
-    // Mediabunny can be loaded as a normal script and exposes window.Mediabunny.
-    // BuildNow/CrazyGames can have a strict CSP, so try both a VM resource URL
-    // and a data URL, then finally an inline resource fallback through GM_addElement.
     function loadMediabunny() {
         if (M) return Promise.resolve(M);
         return new Promise(function (resolve, reject) {
@@ -113,88 +120,64 @@
                 return resolve(M);
             }
 
-            var tried = [];
-            var done = false;
-
-            function finish(api) {
-                if (done) return;
-                if (api) {
-                    done = true;
-                    M = api;
-                    resolve(api);
-                }
+            var settled = false;
+            var timer = null;
+            function done(api) {
+                if (settled) return;
+                if (!api) return;
+                settled = true;
+                clearTimeout(timer);
+                M = api;
+                resolve(api);
             }
-
-            function fail(reason) {
-                if (done) return;
-                done = true;
-                reject(new Error(reason || 'Mediabunny could not be loaded'));
+            function fail(message) {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                reject(new Error(message));
             }
-
-            function checkGlobal() {
+            function check() {
                 var api = unsafeWindow && unsafeWindow.Mediabunny;
-                if (api) finish(api);
-                return !!api;
+                if (api) done(api);
+                return api;
             }
-
-            function injectSrc(url, label, next) {
+            function injectSource(src, next) {
                 try {
-                    var script = GM_addElement(document.documentElement, 'script', { src: url });
-                    var timer = setTimeout(function () {
-                        if (!done && !checkGlobal()) next();
-                    }, 7000);
-                    script.onload = function () {
-                        clearTimeout(timer);
-                        setTimeout(function () {
-                            if (!done && !checkGlobal()) next();
-                        }, 0);
+                    var el = GM_addElement(document.documentElement, 'script', { src: src });
+                    var localTimer = setTimeout(function () {
+                        if (!check() && !settled) next();
+                    }, 5000);
+                    el.onload = function () {
+                        clearTimeout(localTimer);
+                        setTimeout(function () { if (!check() && !settled) next(); }, 0);
                     };
-                    script.onerror = function () {
-                        clearTimeout(timer);
-                        if (!done) next();
+                    el.onerror = function () {
+                        clearTimeout(localTimer);
+                        if (!settled) next();
                     };
-                } catch (e) {
-                    next();
-                }
+                } catch (_) { next(); }
             }
-
-            var blobUrl = '';
-            try { blobUrl = GM_getResourceURL('mediabunny', true); } catch (_) {}
-            var dataUrl = '';
-            try { dataUrl = GM_getResourceURL('mediabunny', false); } catch (_) {}
-
-            // Blob URL first. VM documents this as the normal cached resource URL.
-            if (blobUrl) {
-                tried.push('blob');
-                injectSrc(blobUrl, 'blob', function () {
-                    if (dataUrl) {
-                        tried.push('data');
-                        injectSrc(dataUrl, 'data', function () {
-                            injectText();
-                        });
-                    } else injectText();
-                });
-            } else if (dataUrl) {
-                tried.push('data');
-                injectSrc(dataUrl, 'data', function () { injectText(); });
-            } else {
-                injectText();
-            }
-
             function injectText() {
-                if (done || checkGlobal()) return;
+                if (settled || check()) return;
                 try {
                     var text = GM_getResourceText('mediabunny');
                     if (!text) return fail('Mediabunny resource is empty');
-                    var script = GM_addElement(document.documentElement, 'script', {});
-                    script.textContent = text;
+                    var el = GM_addElement(document.documentElement, 'script', {});
+                    el.textContent = text;
                     setTimeout(function () {
-                        if (!done && !checkGlobal()) fail('Mediabunny loaded but did not create window.Mediabunny');
-                    }, 1000);
-                } catch (e) {
-                    fail('Mediabunny injection failed: ' + (e.message || e));
-                }
+                        if (!check() && !settled) fail('Mediabunny could not initialize');
+                    }, 1500);
+                } catch (e) { fail('Mediabunny could not load'); }
             }
+
+            timer = setTimeout(function () {
+                if (!check() && !settled) fail('Mediabunny could not load');
+            }, 14000);
+
+            var resourceUrl = '';
+            try { resourceUrl = GM_getResourceURL('mediabunny'); } catch (_) {}
+            if (resourceUrl) injectSource(resourceUrl, injectText);
+            else injectText();
         });
     }
 
@@ -202,67 +185,68 @@
         if (!packets.length) return;
         var newest = packets[packets.length - 1].p.timestamp;
         var cutoff = newest - bufferSeconds;
-        var keepFrom = 0;
-        while (keepFrom < packets.length - 1 && packets[keepFrom].p.timestamp < cutoff) keepFrom++;
-        while (keepFrom > 0 && packets[keepFrom].p.type !== 'key') keepFrom--;
-        if (keepFrom > 0) packets.splice(0, keepFrom);
+        var keep = 0;
+        while (keep < packets.length - 1 && packets[keep].p.timestamp < cutoff) keep++;
+        while (keep > 0 && packets[keep].p.type !== 'key') keep--;
+        if (keep > 0) packets.splice(0, keep);
     }
 
-    async function captureForever(c) {
+    async function captureLoopRun(canvas, generation) {
         captureLoop = true;
         frameIndex = 0;
-        while (recording && source && captureLoop) {
+        while (recording && captureLoop && liveSource && generation === captureGeneration) {
             var started = performance.now();
-            var targetTime = frameIndex / 30;
+            var timestamp = frameIndex / 30;
             frameIndex++;
             try {
-                await source.add(targetTime, 1 / 30);
+                await liveSource.add(timestamp, 1 / 30);
             } catch (e) {
                 console.error('[RON ClipTools] capture error', e);
                 captureLoop = false;
-                if (recording && !exporting) {
-                    status('Encoder hiccup — automatically restarting...');
-                    await restartBuffer();
+                if (recording && generation === captureGeneration) {
+                    recording = false;
+                    try { liveSource.close(); } catch (_) {}
+                    try { if (liveOutput) await liveOutput.cancel(); } catch (_) {}
+                    liveSource = null;
+                    liveOutput = null;
+                    scheduleRestart(400);
                 }
                 return;
             }
-            var wait = Math.max(0, 33.333 - (performance.now() - started));
-            if (wait) await new Promise(function (r) { setTimeout(r, wait); });
+            var delay = Math.max(0, 33.333 - (performance.now() - started));
+            if (delay) await new Promise(function (r) { setTimeout(r, delay); });
         }
     }
 
+    var captureGeneration = 0;
+
     async function createBuffer() {
-        var c = getCanvas();
-        if (!c || !c.width || !c.height) throw new Error('BuildNow canvas not ready');
-        if (!window.isSecureContext) throw new Error('Browser security blocks WebCodecs here');
-        if (!window.VideoEncoder || !window.VideoFrame) throw new Error('WebCodecs unavailable');
+        var canvas = getCanvas();
+        if (!canvas || !canvas.width || !canvas.height) throw new Error('canvas not ready');
+        if (!window.isSecureContext || !window.VideoEncoder || !window.VideoFrame) throw new Error('video encoder unavailable');
 
         var api = await loadMediabunny();
-        if (!api.Output || !api.CanvasSource || !api.EncodedVideoPacketSource || !api.Mp4OutputFormat || !api.BufferTarget || !api.NullTarget) {
-            throw new Error('Mediabunny API incomplete');
+        if (!api || !api.Output || !api.CanvasSource || !api.EncodedVideoPacketSource || !api.Mp4OutputFormat || !api.BufferTarget || !api.NullTarget) {
+            throw new Error('media toolkit unavailable');
         }
 
         var quality = api.Quality ? new api.Quality({ bitrate: 6000000 }) : undefined;
         if (api.canEncodeVideo) {
             var supported = await api.canEncodeVideo('avc', {
-                width: c.width,
-                height: c.height,
+                width: canvas.width,
+                height: canvas.height,
                 quality: quality,
                 framerate: 30,
                 latencyMode: 'realtime'
             });
-            if (!supported) throw new Error('H.264/AVC encoder unavailable');
+            if (!supported) throw new Error('H.264 is unavailable');
         }
 
         packets = [];
         firstMeta = null;
 
-        var output = new api.Output({
-            format: new api.Mp4OutputFormat(),
-            target: new api.NullTarget()
-        });
-
-        var src = new api.CanvasSource(c, {
+        var output = new api.Output({ format: new api.Mp4OutputFormat(), target: new api.NullTarget() });
+        var source = new api.CanvasSource(canvas, {
             codec: 'avc',
             quality: quality,
             latencyMode: 'realtime',
@@ -274,159 +258,219 @@
                     packets.push({ p: copy, meta: meta || null });
                     if (!firstMeta && meta && meta.decoderConfig) firstMeta = meta;
                     trimPackets();
-                } catch (e) { console.error('[RON ClipTools] packet error', e); }
+                } catch (e) { console.error('[RON ClipTools] packet capture error', e); }
             }
         });
 
-        output.addVideoTrack(src);
+        output.addVideoTrack(source);
         await output.start();
 
-        live = output;
-        source = src;
+        liveOutput = output;
+        liveSource = source;
         recording = true;
-        updateUI();
-        status('MP4 replay buffer ON');
-        captureForever(c);
-    }
-
-    async function startBuffer() {
-        if (recording || exporting) return;
-        try {
-            status('Starting always-on MP4 buffer...');
-            await createBuffer();
-        } catch (e) {
-            recording = false;
-            console.error('[RON ClipTools] start error', e);
-            status('Retrying MP4 buffer: ' + (e.message || e));
-            scheduleRestart(2000);
-        }
+        starting = false;
+        var generation = ++captureGeneration;
+        captureLoopRun(canvas, generation);
     }
 
     function scheduleRestart(delay) {
-        if (restartTimer || exporting) return;
+        if (restartTimer || exporting || recording || starting) return;
         restartTimer = setTimeout(function () {
             restartTimer = null;
-            if (!exporting) startBuffer();
-        }, delay || 1500);
+            startBuffer();
+        }, delay || 1000);
+    }
+
+    async function startBuffer() {
+        if (recording || starting || exporting) return;
+        starting = true;
+        try {
+            await createBuffer();
+        } catch (e) {
+            console.error('[RON ClipTools] buffer error', e);
+            recording = false;
+            starting = false;
+            scheduleRestart(1500);
+        }
     }
 
     async function restartBuffer() {
-        try { if (source) source.close(); } catch (_) {}
-        try { if (live) await live.cancel(); } catch (_) {}
-        source = null;
-        live = null;
+        captureGeneration++;
+        captureLoop = false;
+        var oldSource = liveSource;
+        var oldOutput = liveOutput;
+        liveSource = null;
+        liveOutput = null;
         recording = false;
+        try { if (oldSource) oldSource.close(); } catch (_) {}
+        try { if (oldOutput) await oldOutput.cancel(); } catch (_) {}
         packets = [];
         firstMeta = null;
-        updateUI();
-        if (!exporting) scheduleRestart(500);
+        scheduleRestart(400);
     }
 
-    async function saveClip() {
-        if (exporting) return;
-        if (!recording || !source) return status('Replay buffer is starting — try again in a moment');
-        if (!packets.length) return status('Replay buffer is warming up...');
-        if (!M) return status('MP4 encoder is still loading...');
+    function clonePacket(item, base) {
+        var p = item.p;
+        try { return p.clone({ timestamp: p.timestamp - base }); }
+        catch (_) { return p.clone(); }
+    }
 
-        exporting = true;
-        try {
-            status('Saving last ' + settings.duration + 's...');
+    async function exportClip() {
+        if (!recording || !liveSource) return setStatus('Clip is warming up', true);
+        if (!packets.length) return setStatus('Clip is warming up', true);
+        if (!M) return setStatus('Clip system is loading', true);
 
-            var end = packets[packets.length - 1].p.timestamp + packets[packets.length - 1].p.duration;
-            var wantedStart = Math.max(0, end - settings.duration);
-            var startIndex = -1;
+        // Take a fixed snapshot immediately. The live buffer keeps running while
+        // the MP4 is exported, so pressing the hotkey repeatedly never kills it.
+        var snapshot = packets.slice();
+        var duration = settings.duration;
+        setStatus('Saving ' + duration + 's clip...');
 
-            for (var i = packets.length - 1; i >= 0; i--) {
-                if (packets[i].p.type === 'key' && packets[i].p.timestamp <= wantedStart) {
-                    startIndex = i;
-                    break;
+        exportQueue = exportQueue.then(async function () {
+            exporting = true;
+            try {
+                if (!snapshot.length) throw new Error('empty buffer');
+                var end = snapshot[snapshot.length - 1].p.timestamp + snapshot[snapshot.length - 1].p.duration;
+                var wanted = Math.max(0, end - duration);
+                var start = -1;
+
+                for (var i = snapshot.length - 1; i >= 0; i--) {
+                    if (snapshot[i].p.type === 'key' && snapshot[i].p.timestamp <= wanted) {
+                        start = i;
+                        break;
+                    }
                 }
-            }
-            if (startIndex < 0) {
-                for (var k = 0; k < packets.length; k++) {
-                    if (packets[k].p.type === 'key') { startIndex = k; break; }
+                if (start < 0) {
+                    for (var j = 0; j < snapshot.length; j++) {
+                        if (snapshot[j].p.type === 'key') { start = j; break; }
+                    }
                 }
+                if (start < 0) throw new Error('buffer has no keyframe yet');
+
+                var chosen = snapshot.slice(start);
+                if (!chosen.length || chosen[0].p.type !== 'key') throw new Error('clip has no keyframe');
+
+                var target = new M.BufferTarget();
+                var output = new M.Output({
+                    format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }),
+                    target: target
+                });
+                var packetSource = new M.EncodedVideoPacketSource('avc');
+                output.addVideoTrack(packetSource);
+                await output.start();
+
+                var base = chosen[0].p.timestamp;
+                for (var k = 0; k < chosen.length; k++) {
+                    var item = chosen[k];
+                    var packet = clonePacket(item, base);
+                    var meta = k === 0 ? (item.meta || firstMeta || undefined) : undefined;
+                    await packetSource.add(packet, meta);
+                }
+                packetSource.close();
+                await output.finalize();
+
+                var buffer = target.buffer;
+                if (!buffer || !buffer.byteLength) throw new Error('empty MP4');
+                saveBlob(new Blob([buffer], { type: 'video/mp4' }), filename('RON-Clip-' + duration + 's-', '.mp4'));
+            } catch (e) {
+                console.error('[RON ClipTools] export error', e);
+                setStatus('Could not save clip', true);
+            } finally {
+                exporting = false;
+                if (!recording && !starting && !restartTimer) scheduleRestart(250);
             }
-            if (startIndex < 0) throw new Error('No H.264 keyframe available yet');
-
-            var chosen = packets.slice(startIndex);
-            if (!chosen.length || chosen[0].p.type !== 'key') throw new Error('No decodable keyframe');
-
-            var target = new M.BufferTarget();
-            var output = new M.Output({
-                format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }),
-                target: target
-            });
-            var packetSource = new M.EncodedVideoPacketSource('avc');
-            output.addVideoTrack(packetSource);
-            await output.start();
-
-            var base = chosen[0].p.timestamp;
-            for (var j = 0; j < chosen.length; j++) {
-                var item = chosen[j];
-                var packet = item.p.clone({ timestamp: item.p.timestamp - base });
-                await packetSource.add(packet, j === 0 ? (item.meta || firstMeta || undefined) : undefined);
-            }
-
-            packetSource.close();
-            await output.finalize();
-            var buffer = target.buffer;
-            if (!buffer || !buffer.byteLength) throw new Error('MP4 muxer returned no data');
-
-            saveBlob(new Blob([buffer], { type: 'video/mp4' }), filename('RON-Clip-' + settings.duration + 's-', '.mp4'));
-        } catch (e) {
-            console.error('[RON ClipTools] export error', e);
-            status('Clip save failed: ' + (e.message || e));
-        } finally {
+        }).catch(function (e) {
+            console.error('[RON ClipTools] queue error', e);
             exporting = false;
-            if (!recording && !restartTimer) scheduleRestart(250);
-            else if (recording) status('MP4 replay buffer ON');
-        }
+            if (!recording && !starting && !restartTimer) scheduleRestart(250);
+        });
+
+        return exportQueue;
     }
 
-    function updateUI() {
+    function updateDurationButtons() {
         if (!panel) return;
-        var b = panel.querySelector('#r111state');
-        if (b) {
-            b.textContent = recording ? '● BUFFERING — ALWAYS ON' : '● STARTING / RETRYING';
-            b.style.color = recording ? '#35ff83' : '#ffd166';
+        var buttons = panel.querySelectorAll('.ron-duration button');
+        for (var i = 0; i < buttons.length; i++) {
+            buttons[i].classList.toggle('active', Number(buttons[i].dataset.seconds) === settings.duration);
         }
-        var save = panel.querySelector('#r111save');
-        if (save) save.textContent = 'SAVE LAST ' + settings.duration + 'S';
     }
 
-    function build() {
+    function toggleSettings() {
+        if (!settingsPanel) return;
+        settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function buildUI() {
         if (!document.body || document.getElementById(ID)) return;
 
         panel = document.createElement('div');
         panel.id = ID;
-        panel.style.cssText = 'position:fixed!important;top:76px!important;right:18px!important;width:320px!important;z-index:2147483647!important;background:#0a0f0c!important;color:#fff!important;border:1px solid #35ff83!important;border-radius:14px!important;box-shadow:0 16px 50px rgba(0,0,0,.55)!important;font:14px Arial,sans-serif!important;overflow:hidden!important;';
-        panel.innerHTML = '<div style="padding:14px;background:#101712"><b style="font-size:17px;color:#35ff83">RON ClipTools</b><div style="font-size:11px;color:#718078">Always-on H.264 MP4 replay</div></div><div style="padding:12px"><div id="r111state" style="font-weight:bold;margin-bottom:10px;color:#ffd166">● STARTING / RETRYING</div><button id="r111shot">Screenshot</button><button id="r111save">SAVE LAST ' + settings.duration + 'S</button><div style="font-size:11px;color:#7a867e;text-align:center;min-height:34px" id="r111status">Starting replay buffer...</div><label>Clip length <select id="r111dur"><option>5</option><option>10</option><option>15</option><option>30</option><option>60</option><option>120</option></select></label><br><label>Screenshot key <input id="r111sk"></label><br><label>Clip key <input id="r111ck"></label><br><label>Window key <input id="r111pk"></label></div>';
+        panel.innerHTML = '<div class="ron-head"><div><div class="ron-title">RON ClipTools</div><div class="ron-sub">Instant replay for BuildNow</div></div><button class="ron-close">×</button></div>' +
+            '<div class="ron-main"><button class="ron-primary ron-clip">Clip last <span class="ron-current">' + settings.duration + 's</span><span class="ron-hotkey">' + settings.clip + '</span></button>' +
+            '<div class="ron-duration"><button data-seconds="5">5s</button><button data-seconds="10">10s</button><button data-seconds="15">15s</button><button data-seconds="30">30s</button><button data-seconds="60">60s</button><button data-seconds="120">120s</button></div>' +
+            '<button class="ron-secondary ron-shot">Screenshot <span>' + settings.shot + '</span></button>' +
+            '<div class="ron-status">Ready</div><button class="ron-settings">Settings</button></div>';
 
         var style = document.createElement('style');
-        style.textContent = '#' + ID + ' button{width:100%;padding:10px;margin:0 0 8px;border:0;border-radius:9px;background:#1b2a20;color:white;font-weight:bold;cursor:pointer}#' + ID + ' #r111shot,#' + ID + ' #r111save{background:#168c46}#' + ID + ' input,#' + ID + ' select{background:#080b09;color:white;border:1px solid #303b33;border-radius:6px;padding:5px;margin:4px}';
+        style.id = ID + '_style';
+        style.textContent = '#' + ID + '{position:fixed!important;top:76px!important;right:18px!important;width:300px!important;z-index:2147483647!important;background:rgba(12,17,14,.97)!important;color:#f4f7f5!important;border:1px solid rgba(53,255,131,.28)!important;border-radius:16px!important;box-shadow:0 18px 55px rgba(0,0,0,.48)!important;font:13px Arial,sans-serif!important;overflow:hidden!important;backdrop-filter:blur(14px)!important}' +
+            '#' + ID + ' *{box-sizing:border-box!important}' +
+            '#' + ID + ' .ron-head{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:15px 16px 13px!important;border-bottom:1px solid rgba(255,255,255,.07)!important}' +
+            '#' + ID + ' .ron-title{font-size:17px!important;font-weight:800!important;letter-spacing:-.3px!important}' +
+            '#' + ID + ' .ron-sub{margin-top:3px!important;color:#84918a!important;font-size:11px!important}' +
+            '#' + ID + ' .ron-close{border:0!important;background:transparent!important;color:#8b9891!important;font-size:21px!important;line-height:1!important;cursor:pointer!important;padding:2px 4px!important}' +
+            '#' + ID + ' .ron-main{padding:14px!important}' +
+            '#' + ID + ' button{font:inherit!important}' +
+            '#' + ID + ' .ron-primary{position:relative!important;width:100%!important;border:0!important;border-radius:11px!important;padding:12px 48px 12px 12px!important;background:#20a85a!important;color:white!important;font-weight:800!important;cursor:pointer!important;text-align:left!important}' +
+            '#' + ID + ' .ron-primary:hover{background:#25bb65!important}' +
+            '#' + ID + ' .ron-hotkey{position:absolute!important;right:11px!important;top:50%!important;transform:translateY(-50%)!important;font-size:10px!important;opacity:.72!important}' +
+            '#' + ID + ' .ron-duration{display:grid!important;grid-template-columns:repeat(6,1fr)!important;gap:5px!important;margin:9px 0!important}' +
+            '#' + ID + ' .ron-duration button{border:1px solid rgba(255,255,255,.08)!important;border-radius:7px!important;padding:7px 2px!important;background:#151d18!important;color:#aab5ae!important;cursor:pointer!important}' +
+            '#' + ID + ' .ron-duration button.active{background:#20392a!important;border-color:rgba(53,255,131,.4)!important;color:#5cff99!important}' +
+            '#' + ID + ' .ron-secondary{width:100%!important;border:1px solid rgba(255,255,255,.08)!important;border-radius:10px!important;padding:10px!important;background:#151d18!important;color:#e7ece9!important;cursor:pointer!important;text-align:left!important}' +
+            '#' + ID + ' .ron-secondary span{float:right!important;color:#7e8b83!important;font-size:10px!important}' +
+            '#' + ID + ' .ron-status{text-align:center!important;height:25px!important;padding-top:9px!important;color:#718078!important;font-size:10px!important}' +
+            '#' + ID + ' .ron-settings{display:block!important;margin:5px auto 0!important;border:0!important;background:transparent!important;color:#67736c!important;cursor:pointer!important;font-size:10px!important}' +
+            '#' + ID + '_settings{position:fixed!important;top:76px!important;right:330px!important;width:250px!important;z-index:2147483647!important;background:#0c110e!important;color:#f4f7f5!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:14px!important;padding:14px!important;box-shadow:0 18px 55px rgba(0,0,0,.48)!important;font:12px Arial,sans-serif!important}' +
+            '#' + ID + '_settings label{display:block!important;margin:10px 0!important;color:#aab5ae!important}' +
+            '#' + ID + '_settings input{float:right!important;width:70px!important;background:#151d18!important;color:white!important;border:1px solid #303a34!important;border-radius:6px!important;padding:4px!important;text-align:center!important}' +
+            '#' + ID + '_settings button{border:0!important;background:#20a85a!important;color:white!important;border-radius:7px!important;padding:7px 10px!important;cursor:pointer!important}';
         document.documentElement.appendChild(style);
         document.body.appendChild(panel);
 
-        panel.querySelector('#r111dur').value = String(settings.duration);
-        panel.querySelector('#r111sk').value = settings.shot;
-        panel.querySelector('#r111ck').value = settings.clip;
-        panel.querySelector('#r111pk').value = settings.panel;
-        panel.querySelector('#r111shot').onclick = screenshot;
-        panel.querySelector('#r111save').onclick = saveClip;
-        panel.querySelector('#r111dur').onchange = function (e) {
-            settings.duration = Number(e.target.value) || 15;
-            saveSettings();
-            updateUI();
-        };
-        panel.querySelector('#r111sk').onchange = function (e) { settings.shot = e.target.value || 'F8'; saveSettings(); };
-        panel.querySelector('#r111ck').onchange = function (e) { settings.clip = e.target.value || 'F9'; saveSettings(); };
-        panel.querySelector('#r111pk').onchange = function (e) { settings.panel = e.target.value || 'F7'; saveSettings(); };
-        updateUI();
+        settingsPanel = document.createElement('div');
+        settingsPanel.id = ID + '_settings';
+        settingsPanel.style.display = 'none';
+        settingsPanel.innerHTML = '<b style="font-size:14px">ClipTools settings</b><label>Screenshot key <input class="sk"></label><label>Clip key <input class="ck"></label><label>Panel key <input class="pk"></label><button class="done">Done</button>';
+        document.body.appendChild(settingsPanel);
+
+        panel.querySelector('.ron-clip').onclick = exportClip;
+        panel.querySelector('.ron-shot').onclick = screenshot;
+        panel.querySelector('.ron-close').onclick = function () { panel.style.display = 'none'; if (settingsPanel) settingsPanel.style.display = 'none'; };
+        panel.querySelector('.ron-settings').onclick = toggleSettings;
+        panel.querySelectorAll('.ron-duration button').forEach(function (b) {
+            b.onclick = function () {
+                settings.duration = Number(b.dataset.seconds);
+                saveSettings();
+                panel.querySelector('.ron-current').textContent = settings.duration + 's';
+                updateDurationButtons();
+            };
+        });
+
+        var sk = settingsPanel.querySelector('.sk');
+        var ck = settingsPanel.querySelector('.ck');
+        var pk = settingsPanel.querySelector('.pk');
+        sk.value = settings.shot; ck.value = settings.clip; pk.value = settings.panel;
+        sk.onchange = function () { settings.shot = sk.value || 'F8'; saveSettings(); panel.querySelector('.ron-shot span').textContent = settings.shot; };
+        ck.onchange = function () { settings.clip = ck.value || 'F9'; saveSettings(); panel.querySelector('.ron-hotkey').textContent = settings.clip; };
+        pk.onchange = function () { settings.panel = pk.value || 'F7'; saveSettings(); };
+        settingsPanel.querySelector('.done').onclick = toggleSettings;
+        updateDurationButtons();
     }
 
     function keyName(e) {
-        if (e.code && /^F[1-9][0-2]?$/.test(e.code)) return e.code;
+        if (e.code && /^F(?:[1-9]|1[0-2])$/.test(e.code)) return e.code;
         return e.key ? e.key.toUpperCase() : '';
     }
 
@@ -434,7 +478,7 @@
         var k = keyName(e);
         if (!k) return;
         if (k === settings.shot) { e.preventDefault(); screenshot(); }
-        else if (k === settings.clip) { e.preventDefault(); saveClip(); }
+        else if (k === settings.clip) { e.preventDefault(); exportClip(); }
         else if (k === settings.panel) {
             e.preventDefault();
             if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -443,7 +487,7 @@
 
     function boot() {
         if (!document.body) return setTimeout(boot, 100);
-        build();
+        buildUI();
         startBuffer();
     }
 

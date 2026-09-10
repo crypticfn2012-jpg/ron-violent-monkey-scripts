@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts/cliptools
-// @version      11.0.0
+// @version      11.1.0
 // @description  RON ClipTools - always-on H.264 MP4 replay clips for BuildNow.GG
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
@@ -14,13 +14,14 @@
 // @run-at       document-end
 // @grant        GM_addElement
 // @grant        GM_getResourceURL
+// @grant        GM_getResourceText
 // @grant        unsafeWindow
 // @resource     mediabunny https://cdn.jsdelivr.net/npm/mediabunny@1.56.1/dist/bundles/mediabunny.cjs
 // ==/UserScript==
 (function () {
     'use strict';
 
-    var ID = '__RON_CLIPTOOLS_V1100__';
+    var ID = '__RON_CLIPTOOLS_V1110__';
     var panel = null;
     var M = null;
     var live = null;
@@ -32,7 +33,6 @@
     var restartTimer = null;
     var captureLoop = false;
     var frameIndex = 0;
-    var lastFrameAt = 0;
     var bufferSeconds = 130;
 
     var settings = { shot: 'F8', clip: 'F9', panel: 'F7', duration: 15 };
@@ -44,7 +44,7 @@
     } catch (_) {}
 
     function status(text) {
-        var e = panel && panel.querySelector('#r11status');
+        var e = panel && panel.querySelector('#r111status');
         if (e) e.textContent = text;
     }
 
@@ -102,43 +102,99 @@
         }
     }
 
+    // Mediabunny can be loaded as a normal script and exposes window.Mediabunny.
+    // BuildNow/CrazyGames can have a strict CSP, so try both a VM resource URL
+    // and a data URL, then finally an inline resource fallback through GM_addElement.
     function loadMediabunny() {
         if (M) return Promise.resolve(M);
         return new Promise(function (resolve, reject) {
-            try {
-                if (unsafeWindow && unsafeWindow.Mediabunny) {
-                    M = unsafeWindow.Mediabunny;
-                    return resolve(M);
-                }
-                var url = GM_getResourceURL('mediabunny');
-                var script = GM_addElement(document.documentElement, 'script', { src: url });
-                var done = false;
-                var timer = setTimeout(function () {
-                    if (!done) { done = true; reject(new Error('Mediabunny load timeout')); }
-                }, 10000);
-                script.onload = function () {
-                    setTimeout(function () {
-                        if (done) return;
-                        var api = unsafeWindow && unsafeWindow.Mediabunny;
-                        if (!api) {
-                            done = true;
-                            clearTimeout(timer);
-                            reject(new Error('Mediabunny global missing'));
-                            return;
-                        }
-                        done = true;
-                        clearTimeout(timer);
-                        M = api;
-                        resolve(M);
-                    }, 0);
-                };
-                script.onerror = function () {
-                    if (done) return;
+            if (unsafeWindow && unsafeWindow.Mediabunny) {
+                M = unsafeWindow.Mediabunny;
+                return resolve(M);
+            }
+
+            var tried = [];
+            var done = false;
+
+            function finish(api) {
+                if (done) return;
+                if (api) {
                     done = true;
-                    clearTimeout(timer);
-                    reject(new Error('Mediabunny script blocked'));
-                };
-            } catch (e) { reject(e); }
+                    M = api;
+                    resolve(api);
+                }
+            }
+
+            function fail(reason) {
+                if (done) return;
+                done = true;
+                reject(new Error(reason || 'Mediabunny could not be loaded'));
+            }
+
+            function checkGlobal() {
+                var api = unsafeWindow && unsafeWindow.Mediabunny;
+                if (api) finish(api);
+                return !!api;
+            }
+
+            function injectSrc(url, label, next) {
+                try {
+                    var script = GM_addElement(document.documentElement, 'script', { src: url });
+                    var timer = setTimeout(function () {
+                        if (!done && !checkGlobal()) next();
+                    }, 7000);
+                    script.onload = function () {
+                        clearTimeout(timer);
+                        setTimeout(function () {
+                            if (!done && !checkGlobal()) next();
+                        }, 0);
+                    };
+                    script.onerror = function () {
+                        clearTimeout(timer);
+                        if (!done) next();
+                    };
+                } catch (e) {
+                    next();
+                }
+            }
+
+            var blobUrl = '';
+            try { blobUrl = GM_getResourceURL('mediabunny', true); } catch (_) {}
+            var dataUrl = '';
+            try { dataUrl = GM_getResourceURL('mediabunny', false); } catch (_) {}
+
+            // Blob URL first. VM documents this as the normal cached resource URL.
+            if (blobUrl) {
+                tried.push('blob');
+                injectSrc(blobUrl, 'blob', function () {
+                    if (dataUrl) {
+                        tried.push('data');
+                        injectSrc(dataUrl, 'data', function () {
+                            injectText();
+                        });
+                    } else injectText();
+                });
+            } else if (dataUrl) {
+                tried.push('data');
+                injectSrc(dataUrl, 'data', function () { injectText(); });
+            } else {
+                injectText();
+            }
+
+            function injectText() {
+                if (done || checkGlobal()) return;
+                try {
+                    var text = GM_getResourceText('mediabunny');
+                    if (!text) return fail('Mediabunny resource is empty');
+                    var script = GM_addElement(document.documentElement, 'script', {});
+                    script.textContent = text;
+                    setTimeout(function () {
+                        if (!done && !checkGlobal()) fail('Mediabunny loaded but did not create window.Mediabunny');
+                    }, 1000);
+                } catch (e) {
+                    fail('Mediabunny injection failed: ' + (e.message || e));
+                }
+            }
         });
     }
 
@@ -148,7 +204,6 @@
         var cutoff = newest - bufferSeconds;
         var keepFrom = 0;
         while (keepFrom < packets.length - 1 && packets[keepFrom].p.timestamp < cutoff) keepFrom++;
-        // Never throw away the keyframe immediately before the retained window.
         while (keepFrom > 0 && packets[keepFrom].p.type !== 'key') keepFrom--;
         if (keepFrom > 0) packets.splice(0, keepFrom);
     }
@@ -156,25 +211,22 @@
     async function captureForever(c) {
         captureLoop = true;
         frameIndex = 0;
-        lastFrameAt = performance.now();
         while (recording && source && captureLoop) {
-            var now = performance.now();
+            var started = performance.now();
             var targetTime = frameIndex / 30;
             frameIndex++;
             try {
                 await source.add(targetTime, 1 / 30);
-                lastFrameAt = now;
             } catch (e) {
                 console.error('[RON ClipTools] capture error', e);
-                if (recording) {
-                    status('Encoder hiccup — restarting buffer...');
-                    captureLoop = false;
+                captureLoop = false;
+                if (recording && !exporting) {
+                    status('Encoder hiccup — automatically restarting...');
                     await restartBuffer();
                 }
                 return;
             }
-            var elapsed = performance.now() - now;
-            var wait = Math.max(0, 33.333 - elapsed);
+            var wait = Math.max(0, 33.333 - (performance.now() - started));
             if (wait) await new Promise(function (r) { setTimeout(r, wait); });
         }
     }
@@ -214,8 +266,6 @@
             codec: 'avc',
             quality: quality,
             latencyMode: 'realtime',
-            // Frequent keyframes make saved clips begin extremely close to the
-            // requested time instead of jumping back a large amount.
             keyFrameInterval: 0.5,
             alpha: 'discard',
             onEncodedPacket: function (packet, meta) {
@@ -224,9 +274,7 @@
                     packets.push({ p: copy, meta: meta || null });
                     if (!firstMeta && meta && meta.decoderConfig) firstMeta = meta;
                     trimPackets();
-                } catch (e) {
-                    console.error('[RON ClipTools] packet error', e);
-                }
+                } catch (e) { console.error('[RON ClipTools] packet error', e); }
             }
         });
 
@@ -331,8 +379,6 @@
             status('Clip save failed: ' + (e.message || e));
         } finally {
             exporting = false;
-            // The buffer was never intentionally stopped. If an encoder hiccup
-            // happened during export, bring it straight back up.
             if (!recording && !restartTimer) scheduleRestart(250);
             else if (recording) status('MP4 replay buffer ON');
         }
@@ -340,12 +386,12 @@
 
     function updateUI() {
         if (!panel) return;
-        var b = panel.querySelector('#r11state');
+        var b = panel.querySelector('#r111state');
         if (b) {
-            b.textContent = recording ? '● BUFFERING' : '● STARTING';
+            b.textContent = recording ? '● BUFFERING — ALWAYS ON' : '● STARTING / RETRYING';
             b.style.color = recording ? '#35ff83' : '#ffd166';
         }
-        var save = panel.querySelector('#r11save');
+        var save = panel.querySelector('#r111save');
         if (save) save.textContent = 'SAVE LAST ' + settings.duration + 'S';
     }
 
@@ -355,27 +401,27 @@
         panel = document.createElement('div');
         panel.id = ID;
         panel.style.cssText = 'position:fixed!important;top:76px!important;right:18px!important;width:320px!important;z-index:2147483647!important;background:#0a0f0c!important;color:#fff!important;border:1px solid #35ff83!important;border-radius:14px!important;box-shadow:0 16px 50px rgba(0,0,0,.55)!important;font:14px Arial,sans-serif!important;overflow:hidden!important;';
-        panel.innerHTML = '<div style="padding:14px;background:#101712"><b style="font-size:17px;color:#35ff83">RON ClipTools</b><div style="font-size:11px;color:#718078">Always-on H.264 MP4 replay</div></div><div style="padding:12px"><div id="r11state" style="font-weight:bold;margin-bottom:10px;color:#ffd166">● STARTING</div><button id="r11shot">Screenshot</button><button id="r11save">SAVE LAST ' + settings.duration + 'S</button><div style="font-size:11px;color:#7a867e;text-align:center;min-height:34px" id="r11status">Starting replay buffer...</div><label>Clip length <select id="r11dur"><option>5</option><option>10</option><option>15</option><option>30</option><option>60</option><option>120</option></select></label><br><label>Screenshot key <input id="r11sk"></label><br><label>Clip key <input id="r11ck"></label><br><label>Window key <input id="r11pk"></label></div>';
+        panel.innerHTML = '<div style="padding:14px;background:#101712"><b style="font-size:17px;color:#35ff83">RON ClipTools</b><div style="font-size:11px;color:#718078">Always-on H.264 MP4 replay</div></div><div style="padding:12px"><div id="r111state" style="font-weight:bold;margin-bottom:10px;color:#ffd166">● STARTING / RETRYING</div><button id="r111shot">Screenshot</button><button id="r111save">SAVE LAST ' + settings.duration + 'S</button><div style="font-size:11px;color:#7a867e;text-align:center;min-height:34px" id="r111status">Starting replay buffer...</div><label>Clip length <select id="r111dur"><option>5</option><option>10</option><option>15</option><option>30</option><option>60</option><option>120</option></select></label><br><label>Screenshot key <input id="r111sk"></label><br><label>Clip key <input id="r111ck"></label><br><label>Window key <input id="r111pk"></label></div>';
 
         var style = document.createElement('style');
-        style.textContent = '#' + ID + ' button{width:100%;padding:10px;margin:0 0 8px;border:0;border-radius:9px;background:#1b2a20;color:white;font-weight:bold;cursor:pointer}#' + ID + ' #r11shot,#' + ID + ' #r11save{background:#168c46}#' + ID + ' input,#' + ID + ' select{background:#080b09;color:white;border:1px solid #303b33;border-radius:6px;padding:5px;margin:4px}';
+        style.textContent = '#' + ID + ' button{width:100%;padding:10px;margin:0 0 8px;border:0;border-radius:9px;background:#1b2a20;color:white;font-weight:bold;cursor:pointer}#' + ID + ' #r111shot,#' + ID + ' #r111save{background:#168c46}#' + ID + ' input,#' + ID + ' select{background:#080b09;color:white;border:1px solid #303b33;border-radius:6px;padding:5px;margin:4px}';
         document.documentElement.appendChild(style);
         document.body.appendChild(panel);
 
-        panel.querySelector('#r11dur').value = String(settings.duration);
-        panel.querySelector('#r11sk').value = settings.shot;
-        panel.querySelector('#r11ck').value = settings.clip;
-        panel.querySelector('#r11pk').value = settings.panel;
-        panel.querySelector('#r11shot').onclick = screenshot;
-        panel.querySelector('#r11save').onclick = saveClip;
-        panel.querySelector('#r11dur').onchange = function (e) {
+        panel.querySelector('#r111dur').value = String(settings.duration);
+        panel.querySelector('#r111sk').value = settings.shot;
+        panel.querySelector('#r111ck').value = settings.clip;
+        panel.querySelector('#r111pk').value = settings.panel;
+        panel.querySelector('#r111shot').onclick = screenshot;
+        panel.querySelector('#r111save').onclick = saveClip;
+        panel.querySelector('#r111dur').onchange = function (e) {
             settings.duration = Number(e.target.value) || 15;
             saveSettings();
             updateUI();
         };
-        panel.querySelector('#r11sk').onchange = function (e) { settings.shot = e.target.value || 'F8'; saveSettings(); };
-        panel.querySelector('#r11ck').onchange = function (e) { settings.clip = e.target.value || 'F9'; saveSettings(); };
-        panel.querySelector('#r11pk').onchange = function (e) { settings.panel = e.target.value || 'F7'; saveSettings(); };
+        panel.querySelector('#r111sk').onchange = function (e) { settings.shot = e.target.value || 'F8'; saveSettings(); };
+        panel.querySelector('#r111ck').onchange = function (e) { settings.clip = e.target.value || 'F9'; saveSettings(); };
+        panel.querySelector('#r111pk').onchange = function (e) { settings.panel = e.target.value || 'F7'; saveSettings(); };
         updateUI();
     }
 

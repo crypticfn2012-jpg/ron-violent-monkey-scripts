@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://ron.cool/userscripts/cliptools
-// @version      18.0.0
+// @version      18.1.0
 // @description  RON ClipTools - instant 15 second replay clips for BuildNow.GG
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
@@ -22,18 +22,8 @@
     'use strict';
 
     var IS_TOP = window.top === window;
-    var ID = '__RON_CLIPTOOLS_V1800__';
+    var ID = '__RON_CLIPTOOLS_V1810__';
     var CLIP_SECONDS = 15, KEEP_SECONDS = 20, FPS = 30, BITRATE = 5000000;
-
-    if (!IS_TOP) {
-        window.addEventListener('keydown', function (e) {
-            var k = e.code || '';
-            if (/^F(?:7|8|9)$/.test(k)) {
-                try { window.top.postMessage({ __ronClipTools: k }, '*'); } catch (_) {}
-            }
-        }, true);
-        return;
-    }
 
     var M = null, panel = null, settingsPanel = null;
     var output = null, source = null, stream = null, track = null;
@@ -129,15 +119,6 @@
         var cutoff = segments[segments.length - 1].time - KEEP_SECONDS;
         while (segments.length && segments[0].time < cutoff) segments.shift();
     }
-    async function stopCapture() {
-        running = false;
-        var s = source, o = output, t = track, st = stream;
-        source = null; output = null; track = null; stream = null;
-        try { if (s && s.close) s.close(); } catch (_) {}
-        try { if (o && o.cancel) await o.cancel(); } catch (_) {}
-        try { if (t) t.stop(); } catch (_) {}
-        try { if (st) st.getTracks().forEach(function (x) { x.stop(); }); } catch (_) {}
-    }
     async function cropStreamTrack(t, target) {
         if (!target || target === document.body) return false;
         try {
@@ -165,16 +146,17 @@
     }
     async function requestCapture() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) throw new Error('Screen capture unavailable');
-        var s = await navigator.mediaDevices.getDisplayMedia({
-            video: { displaySurface: 'browser', frameRate: { ideal: FPS, max: FPS } },
-            audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude'
-        });
+        var s = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser', frameRate: { ideal: FPS, max: FPS } }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude' });
         var t = s.getVideoTracks()[0]; if (!t) throw new Error('No capture track');
         var target = captureTarget(), restricted = await cropStreamTrack(t, target), crop = restricted ? null : manualCrop(target, t);
         t.addEventListener('ended', function () { if (running) { running = false; status('Capture ended', true); } });
         return { stream: s, track: t, crop: crop };
     }
     async function startCapture() {
+        if (!IS_TOP) {
+            try { window.top.postMessage({ __ronClipStart: true }, '*'); } catch (_) {}
+            return false;
+        }
         if (running || starting) return true;
         starting = true; status('Allow capture', false);
         try {
@@ -261,16 +243,23 @@
     }
 
     window.addEventListener('message', function (e) {
-        var k = e.data && e.data.__ronClipTools; if (!k) return;
+        var data = e.data || {};
+        if (data.__ronClipStart && IS_TOP) { startCapture(); return; }
+        var k = data.__ronClipTools; if (!k) return;
         if (k === settings.panel) { if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; }
         else if (k === settings.shot) screenshot();
-        else if (k === settings.clip && running) saveClip();
+        else if (k === settings.clip) { if (!running) startCapture(); else saveClip(); }
     });
     document.addEventListener('keydown', function (e) {
         var k = key(e);
-        if (k === settings.panel) { if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; e.preventDefault(); }
-        else if (k === settings.shot) { screenshot(); e.preventDefault(); }
-        else if (k === settings.clip && running) { saveClip(); e.preventDefault(); }
+        if (k === settings.panel) { if (!IS_TOP) { try { window.top.postMessage({ __ronClipTools: k }, '*'); } catch (_) {} } else if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; e.preventDefault(); }
+        else if (k === settings.shot) { if (!IS_TOP) { try { window.top.postMessage({ __ronClipTools: k }, '*'); } catch (_) {} } else screenshot(); e.preventDefault(); }
+        else if (k === settings.clip) { if (!IS_TOP) { try { window.top.postMessage({ __ronClipTools: k }, '*'); } catch (_) {} } else if (!running) startCapture(); else saveClip(); e.preventDefault(); }
     }, true);
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildUI, { once: true }); else buildUI();
+
+    function boot() {
+        if (document.body) buildUI();
+        else setTimeout(boot, 50);
+    }
+    boot();
 })();

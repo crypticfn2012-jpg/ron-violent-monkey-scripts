@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RON ClipTools
-// @namespace    https://ron.cool/userscripts/cliptools-v9
-// @version      9.1.0
-// @description  RON ClipTools for BuildNow.GG - screenshots and replay clips
+// @namespace    https://ron.cool/userscripts/cliptools-v10
+// @version      10.0.0
+// @description  RON ClipTools - reliable H.264 MP4 replay clips for BuildNow.GG
 // @author       Ron
 // @homepageURL  https://crypticfn2012-jpg.github.io/ron-violent-monkey-scripts/
 // @supportURL   https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/issues
@@ -12,259 +12,26 @@
 // @match        *://*.buildnow.gg/*
 // @match        *://buildnow-gg.game-files.crazygames.com/*
 // @run-at       document-end
-// @grant        none
+// @grant        GM_addElement
+// @grant        GM_getResourceURL
+// @grant        unsafeWindow
+// @resource     mediabunny https://cdn.jsdelivr.net/npm/mediabunny@1.56.1/dist/bundles/mediabunny.cjs
 // ==/UserScript==
-
-(function () {
-    'use strict';
-
-    // v9.1: intentionally allow execution inside matching iframes.
-    // BuildNow/CrazyGames can host the actual Unity game in a nested frame,
-    // and @noframes prevented ClipTools from ever reaching that document.
-    var ID = '__RON_CLIPTOOLS_V910__';
-    var panel;
-    var settings = { shot: 'F8', clip: 'F9', panel: 'F7', duration: 15 };
-    var recording = false;
-    var recorder = null;
-    var stream = null;
-    var chunks = [];
-
-    try {
-        settings.shot = localStorage.getItem('ron_cliptools_v9_shot') || 'F8';
-        settings.clip = localStorage.getItem('ron_cliptools_v9_clip') || 'F9';
-        settings.panel = localStorage.getItem('ron_cliptools_v9_panel') || 'F7';
-        settings.duration = Number(localStorage.getItem('ron_cliptools_v9_duration')) || 15;
-    } catch (_) {}
-
-    function saveSettings() {
-        try {
-            localStorage.setItem('ron_cliptools_v9_shot', settings.shot);
-            localStorage.setItem('ron_cliptools_v9_clip', settings.clip);
-            localStorage.setItem('ron_cliptools_v9_panel', settings.panel);
-            localStorage.setItem('ron_cliptools_v9_duration', String(settings.duration));
-        } catch (_) {}
-    }
-
-    function findCanvas() {
-        var list = document.getElementsByTagName('canvas');
-        var best = null;
-        var bestArea = 0;
-        for (var i = 0; i < list.length; i++) {
-            var c = list[i];
-            var area = (c.width || 0) * (c.height || 0);
-            if (area > bestArea) {
-                best = c;
-                bestArea = area;
-            }
-        }
-        return best;
-    }
-
-    function filename() {
-        var d = new Date();
-        function p(n) { return String(n).padStart(2, '0'); }
-        return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + '-' + p(d.getMinutes()) + '-' + p(d.getSeconds());
-    }
-
-    function setStatus(text) {
-        var e = panel && panel.querySelector('#rc91-status');
-        if (e) e.textContent = text;
-    }
-
-    function download(blob, name) {
-        if (!blob || !blob.size) return setStatus('Nothing to save');
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
-        setStatus('Saved ' + name);
-    }
-
-    function screenshot() {
-        var c = findCanvas();
-        if (!c) return setStatus('No BuildNow canvas found');
-        try {
-            c.toBlob(function (blob) {
-                if (blob) download(blob, 'RON-Screenshot-' + filename() + '.png');
-                else setStatus('Screenshot failed');
-            }, 'image/png');
-        } catch (e) {
-            console.error('[RON ClipTools]', e);
-            setStatus('Screenshot unavailable');
-        }
-    }
-
-    function mimeType() {
-        if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
-        var types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-        for (var i = 0; i < types.length; i++) {
-            if (MediaRecorder.isTypeSupported(types[i])) return types[i];
-        }
-        return '';
-    }
-
-    function trimChunks() {
-        var cutoff = Date.now() - 125000;
-        while (chunks.length > 1 && chunks[0].time < cutoff) chunks.shift();
-    }
-
-    function updateButtons() {
-        if (!panel) return;
-        var b = panel.querySelector('#rc91-buffer');
-        var s = panel.querySelector('#rc91-save');
-        var t = panel.querySelector('#rc91-timer');
-        if (b) b.textContent = recording ? 'Stop Clip Buffer' : 'Start Clip Buffer';
-        if (s) {
-            s.disabled = !recording;
-            s.textContent = 'Save Last ' + settings.duration + 's';
-        }
-        if (t) t.textContent = recording ? 'Replay buffer is running' : 'Buffer is off';
-    }
-
-    function startBuffer() {
-        if (recording) return;
-        var c = findCanvas();
-        if (!c) return setStatus('BuildNow canvas not ready yet');
-        if (!c.captureStream || !window.MediaRecorder) return setStatus('Canvas recording is unavailable');
-        var type = mimeType();
-        if (!type) return setStatus('Video recording is unavailable');
-        try {
-            stream = c.captureStream(60);
-            recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8000000 });
-            chunks = [];
-            recorder.ondataavailable = function (e) {
-                if (e.data && e.data.size) {
-                    chunks.push({ blob: e.data, time: Date.now() });
-                    trimChunks();
-                }
-            };
-            recorder.onerror = function (e) {
-                console.error('[RON ClipTools] recorder error', e);
-                setStatus('Recorder error');
-            };
-            recorder.start(1000);
-            recording = true;
-            updateButtons();
-            setStatus('Replay buffer ON');
-        } catch (e) {
-            console.error('[RON ClipTools] start error', e);
-            try { if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); } catch (_) {}
-            stream = null;
-            recorder = null;
-            recording = false;
-            updateButtons();
-            setStatus('Could not start recording');
-        }
-    }
-
-    function stopBuffer() {
-        try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (_) {}
-        try { if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); } catch (_) {}
-        stream = null;
-        recorder = null;
-        recording = false;
-        chunks = [];
-        updateButtons();
-        setStatus('Buffer OFF');
-    }
-
-    function saveClip() {
-        if (!recording || !recorder) return setStatus('Start Clip Buffer first');
-        if (chunks.length < 2) return setStatus('Buffer warming up — wait a few seconds');
-        var cutoff = Date.now() - settings.duration * 1000;
-        var recent = [];
-        for (var i = 0; i < chunks.length; i++) {
-            if (chunks[i].time >= cutoff) recent.push(chunks[i].blob);
-        }
-        if (!recent.length) return setStatus('Not enough footage yet');
-        download(new Blob(recent, { type: recorder.mimeType || 'video/webm' }), 'RON-Clip-' + settings.duration + 's-' + filename() + '.webm');
-    }
-
-    function togglePanel() {
-        if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    }
-
-    function build() {
-        if (!document.body || document.getElementById(ID)) return false;
-
-        panel = document.createElement('div');
-        panel.id = ID;
-        panel.style.cssText = 'position:fixed!important;top:76px!important;right:18px!important;width:310px!important;z-index:2147483647!important;display:block!important;background:#0a0f0c!important;color:#fff!important;border:1px solid #35ff83!important;border-radius:14px!important;box-shadow:0 16px 50px rgba(0,0,0,.55)!important;font:14px Arial,sans-serif!important;overflow:hidden!important;pointer-events:auto!important;';
-        panel.innerHTML = '<div id="rc91-head" style="padding:14px 15px;background:#101712;color:#fff;cursor:move;user-select:none"><b style="font-size:17px;color:#35ff83">RON ClipTools</b><div style="font-size:11px;color:#718078;margin-top:3px">RON Labs • BuildNow.GG</div></div>' +
-            '<div style="padding:12px">' +
-            '<button id="rc91-shot">Screenshot</button>' +
-            '<button id="rc91-buffer">Start Clip Buffer</button>' +
-            '<button id="rc91-save" disabled>Save Last ' + settings.duration + 's</button>' +
-            '<div id="rc91-timer" style="text-align:center;color:#35ff83;font-size:11px;margin:2px 0 9px">Buffer is off</div>' +
-            '<button id="rc91-site">RON Labs Clips</button>' +
-            '<div style="font-size:10px;color:#657168;line-height:1.35;margin:3px 0 9px">Browser canvas capture only. No game data or network hooks.</div>' +
-            '<label style="display:flex;justify-content:space-between;align-items:center;color:#aab5ae;font-size:12px;margin:8px 0">Clip length <select id="rc91-duration"><option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">120 seconds</option></select></label>' +
-            '<label style="display:flex;justify-content:space-between;align-items:center;color:#aab5ae;font-size:12px;margin:8px 0">Screenshot key <input id="rc91-sk"></label>' +
-            '<label style="display:flex;justify-content:space-between;align-items:center;color:#aab5ae;font-size:12px;margin:8px 0">Clip key <input id="rc91-ck"></label>' +
-            '<label style="display:flex;justify-content:space-between;align-items:center;color:#aab5ae;font-size:12px;margin:8px 0">Window key <input id="rc91-pk"></label>' +
-            '<div id="rc91-status" style="text-align:center;color:#7a867e;font-size:11px;line-height:14px;min-height:28px;padding-top:2px">RON ClipTools 9.1.0 loaded</div>' +
-            '</div>';
-
-        var style = document.createElement('style');
-        style.textContent = '#' + ID + ' button{width:100%;box-sizing:border-box;border:0;border-radius:9px;padding:10px;margin:0 0 8px;background:#1a241d;color:#fff;font-weight:700;cursor:pointer}#' + ID + ' button:hover{background:#26362b}#' + ID + ' button:disabled{opacity:.4;cursor:not-allowed}#' + ID + ' #rc91-shot,#' + ID + ' #rc91-save{background:#168c46}#' + ID + ' #rc91-buffer{background:#214d32}#' + ID + ' #rc91-site{background:#35ff83;color:#061008}#' + ID + ' input,#' + ID + ' select{width:108px;box-sizing:border-box;background:#080b09;color:#fff;border:1px solid #303b33;border-radius:6px;padding:6px}';
-        document.documentElement.appendChild(style);
-        document.body.appendChild(panel);
-
-        panel.querySelector('#rc91-sk').value = settings.shot;
-        panel.querySelector('#rc91-ck').value = settings.clip;
-        panel.querySelector('#rc91-pk').value = settings.panel;
-        panel.querySelector('#rc91-duration').value = String(settings.duration);
-        panel.querySelector('#rc91-shot').onclick = screenshot;
-        panel.querySelector('#rc91-buffer').onclick = function(){ recording ? stopBuffer() : startBuffer(); };
-        panel.querySelector('#rc91-save').onclick = saveClip;
-        panel.querySelector('#rc91-site').onclick = function(){ window.open('https://ron.cool/clips', '_blank'); };
-        panel.querySelector('#rc91-duration').onchange = function(e){ settings.duration=Number(e.target.value)||15; saveSettings(); updateButtons(); };
-        panel.querySelector('#rc91-sk').onchange = function(e){ settings.shot=e.target.value.trim()||'F8'; saveSettings(); };
-        panel.querySelector('#rc91-ck').onchange = function(e){ settings.clip=e.target.value.trim()||'F9'; saveSettings(); };
-        panel.querySelector('#rc91-pk').onchange = function(e){ settings.panel=e.target.value.trim()||'F7'; saveSettings(); };
-
-        var head = panel.querySelector('#rc91-head');
-        var dragging = false, dx = 0, dy = 0;
-        head.addEventListener('mousedown', function(e){
-            if (e.button !== 0) return;
-            dragging = true;
-            var r = panel.getBoundingClientRect();
-            dx = e.clientX - r.left; dy = e.clientY - r.top;
-            panel.style.right = 'auto';
-            panel.style.left = r.left + 'px';
-            panel.style.top = r.top + 'px';
-        });
-        document.addEventListener('mousemove', function(e){ if(dragging){ panel.style.left=(e.clientX-dx)+'px'; panel.style.top=(e.clientY-dy)+'px'; } });
-        document.addEventListener('mouseup', function(){ dragging=false; });
-        updateButtons();
-        return true;
-    }
-
-    document.addEventListener('keydown', function(e){
-        if (e.repeat || e.defaultPrevented) return;
-        var target = e.target;
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-        var key = String(e.key).toLowerCase();
-        if (key === String(settings.shot).toLowerCase()) { e.preventDefault(); screenshot(); }
-        else if (key === String(settings.clip).toLowerCase()) { e.preventDefault(); saveClip(); }
-        else if (key === String(settings.panel).toLowerCase()) { e.preventDefault(); togglePanel(); }
-    }, false);
-
-    function ensure() {
-        if (!panel || !panel.isConnected) build();
-    }
-
-    ensure();
-    var tries = 0;
-    var timer = setInterval(function(){
-        tries++;
-        ensure();
-        if (panel && panel.isConnected) clearInterval(timer);
-        if (tries > 120) clearInterval(timer);
-    }, 250);
+(function(){'use strict';
+var ID='__RON_CLIPTOOLS_V1000__', panel=null, mb=null, live=null, source=null, captureTimer=null, busy=false, recording=false;
+var settings={shot:'F8',clip:'F9',panel:'F7',duration:15};
+try{settings.shot=localStorage.getItem('ron_cliptools_v10_shot')||'F8';settings.clip=localStorage.getItem('ron_cliptools_v10_clip')||'F9';settings.panel=localStorage.getItem('ron_cliptools_v10_panel')||'F7';settings.duration=Number(localStorage.getItem('ron_cliptools_v10_duration'))||15}catch(e){}
+function saveSettings(){try{localStorage.setItem('ron_cliptools_v10_shot',settings.shot);localStorage.setItem('ron_cliptools_v10_clip',settings.clip);localStorage.setItem('ron_cliptools_v10_panel',settings.panel);localStorage.setItem('ron_cliptools_v10_duration',settings.duration)}catch(e){}}
+function status(s){var e=panel&&panel.querySelector('#r10status');if(e)e.textContent=s}
+function canvas(){var a=document.getElementsByTagName('canvas'),best=null,area=0;for(var i=0;i<a.length;i++){var x=(a[i].width||0)*(a[i].height||0);if(x>area){area=x;best=a[i]}}return best}
+function name(){var d=new Date(),p=function(n){return String(n).padStart(2,'0')};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+'-'+p(d.getMinutes())+'-'+p(d.getSeconds())}
+function saveBlob(b,n){if(!b||!b.size)return status('Nothing to save');var u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=n;a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u)},30000);status('Saved '+n)}
+function shot(){var c=canvas();if(!c)return status('No BuildNow canvas found');try{c.toBlob(function(b){saveBlob(b,'RON-Screenshot-'+name()+'.png')},'image/png')}catch(e){status('Screenshot unavailable')}}
+function loadMB(){return new Promise(function(resolve,reject){var w=unsafeWindow;if(w.Mediabunny)return resolve(w.Mediabunny);var done=false;function ok(){if(done)return;done=true;setTimeout(function(){var x=unsafeWindow.Mediabunny;if(x){mb=x;resolve(x)}else reject(new Error('Mediabunny global missing'))},0)}function fail(){if(done)return;done=true;reject(new Error('Mediabunny failed to load'))}try{var u=GM_getResourceURL('mediabunny'),s=GM_addElement('script',{src:u});s.onload=ok;s.onerror=function(){try{var t=GM_addElement('script',{src:'https://cdn.jsdelivr.net/npm/mediabunny@1.56.1/dist/bundles/mediabunny.cjs'});t.onload=ok;t.onerror=fail}catch(e){fail()}}}catch(e){fail()}})}
+async function start(){if(recording)return;var c=canvas();if(!c)return status('BuildNow canvas not ready');status('Loading MP4 encoder...');try{var M=mb||await loadMB();if(!M||!M.Output||!M.CanvasSource||!M.EncodedVideoPacketSource)throw new Error('Media toolkit unavailable');if(M.canEncodeVideo&&!(await M.canEncodeVideo('avc',{width:c.width,height:c.height,bitrate:6000000})))throw new Error('H.264/AVC encoder unavailable');live=new M.Output({format:new M.Mp4OutputFormat(),target:new M.NullTarget()});var packets=[];var firstMeta=null,lastTime=0;source=new M.CanvasSource(c,{codec:'avc',bitrate:6000000,latencyMode:'realtime',keyFrameInterval:1,alpha:'discard',onEncodedPacket:function(p,meta){packets.push({p:p.clone(),meta:meta});lastTime=Math.max(lastTime,p.timestamp+p.duration);var cut=lastTime-125;while(packets.length>1&&packets[0].p.timestamp<cut)packets.shift();if(meta&&meta.decoderConfig&&!firstMeta)firstMeta=meta}});live.addVideoTrack(source);await live.start();recording=true;var t0=performance.now();captureTimer=setInterval(async function(){if(!recording||busy)return;busy=true;try{var t=(performance.now()-t0)/1000;await source.add(t,1/30)}catch(e){console.error('[RON ClipTools]',e);status('Encoder error: '+(e.message||e));stop(false)}busy=false},33);status('MP4 replay buffer ON')}catch(e){console.error('[RON ClipTools]',e);status('MP4 recorder unavailable: '+(e.message||e));try{if(live)await live.cancel()}catch(x){}live=null;source=null}}
+async function clip(){if(!recording||!live||!source)return status('Start MP4 buffer first');if(busy)return status('Encoder busy - try again');var M=mb;if(!M)return status('MP4 toolkit not ready');try{status('Building valid MP4...');var now=0,packets=source.__ronPackets||null;/* packets are kept below on source */packets=packets||[];if(!packets.length){status('Buffer warming up - wait a few seconds');return}var cut=packets[packets.length-1].p.timestamp-settings.duration;var startIndex=0;for(var i=packets.length-1;i>=0;i--){if(packets[i].p.type==='key'&&packets[i].p.timestamp<=cut){startIndex=i;break}}var chosen=packets.slice(startIndex);if(!chosen.length||chosen[0].p.type!=='key'){status('Waiting for an MP4 keyframe');return}var out=new M.Output({format:new M.Mp4OutputFormat({fastStart:'in-memory'}),target:new M.BufferTarget()}),ps=new M.EncodedVideoPacketSource('avc');out.addVideoTrack(ps);await out.start();var base=chosen[0].p.timestamp;for(var j=0;j<chosen.length;j++){var q=chosen[j].p.clone({timestamp:chosen[j].p.timestamp-base});await ps.add(q,j===0?chosen[j].meta:undefined)}ps.close();await out.finalize();var buf=out.target.buffer;if(!buf)throw new Error('MP4 finalization returned no data');saveBlob(new Blob([buf],{type:'video/mp4'}),'RON-Clip-'+settings.duration+'s-'+name()+'.mp4')}catch(e){console.error('[RON ClipTools]',e);status('MP4 export failed: '+(e.message||e))}}
+async function stop(cancel){recording=false;if(captureTimer){clearInterval(captureTimer);captureTimer=null}try{if(source)source.close()}catch(e){}try{if(live){if(cancel===false)await live.cancel();else await live.cancel()}}catch(e){}live=null;source=null;status('MP4 buffer OFF');update()}
+function update(){if(!panel)return;var b=panel.querySelector('#r10buf'),s=panel.querySelector('#r10save');if(b)b.textContent=recording?'Stop MP4 Buffer':'Start MP4 Buffer';if(s){s.disabled=!recording;s.textContent='Save Last '+settings.duration+'s'}}
+function build(){if(!document.body||document.getElementById(ID))return;panel=document.createElement('div');panel.id=ID;panel.style.cssText='position:fixed!important;top:76px!important;right:18px!important;width:315px!important;z-index:2147483647!important;background:#0a0f0c!important;color:white!important;border:1px solid #35ff83!important;border-radius:14px!important;box-shadow:0 16px 50px rgba(0,0,0,.55)!important;font:14px Arial,sans-serif!important;overflow:hidden!important';panel.innerHTML='<div style="padding:14px;background:#101712"><b style="font-size:17px;color:#35ff83">RON ClipTools</b><div style="font-size:11px;color:#718078">H.264 MP4 replay buffer</div></div><div style="padding:12px"><button id="r10shot">Screenshot</button><button id="r10buf">Start MP4 Buffer</button><button id="r10save" disabled>Save Last '+settings.duration+'s</button><div style="font-size:11px;color:#7a867e;text-align:center;min-height:30px" id="r10status">RON ClipTools 10.0.0 loaded</div><label>Clip length <select id="r10dur"><option>5</option><option>10</option><option>15</option><option>30</option><option>60</option><option>120</option></select></label><br><label>Screenshot key <input id="r10sk"></label><br><label>Clip key <input id="r10ck"></label><br><label>Window key <input id="r10pk"></label></div>';var st=document.createElement('style');st.textContent='#'+ID+' button{width:100%;padding:10px;margin:0 0 8px;border:0;border-radius:9px;background:#1b2a20;color:white;font-weight:bold;cursor:pointer}#'+ID+' #r10shot,#'+ID+' #r10save{background:#168c46}#'+ID+' #r10buf{background:#214d32}#'+ID+' input,#'+ID+' select{background:#080b09;color:white;border:1px solid #303b33;border-radius:6px;padding:5px;margin:4px}';document.documentElement.appendChild(st);document.body.appendChild(panel);panel.querySelector('#r10dur').value=settings.duration;panel.querySelector('#r10sk').value=settings.shot;panel.querySelector('#r10ck').value=settings.clip;panel.querySelector('#r10pk').value=settings.panel;panel.querySelector('#r10shot').onclick=shot;panel.querySelector('#r10buf').onclick=function(){recording?stop(true):start()};panel.querySelector('#r10save').onclick=clip;panel.querySelector('#r10dur').onchange=function(e){settings.duration=Number(e.target.value)||15;saveSettings();update()};panel.querySelector('#r10sk').onchange=function(e){settings.shot=e.target.value||'F8';saveSettings()};panel.querySelector('#r10ck').onchange=function(e){settings.clip=e.target.value||'F9';saveSettings()};panel.querySelector('#r10pk').onchange=function(e){settings.panel=e.target.value||'F7';saveSettings()};update()}
+document.addEventListener('keydown',function(e){if(e.repeat)return;var t=e.target;if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;var k=e.key.toLowerCase();if(k===settings.shot.toLowerCase()){e.preventDefault();shot()}else if(k===settings.clip.toLowerCase()){e.preventDefault();clip()}else if(k===settings.panel.toLowerCase()){e.preventDefault();if(panel)panel.style.display=panel.style.display==='none'?'block':'none'}});var tries=0,timer=setInterval(function(){tries++;if(!panel)build();if(panel&&panel.isConnected)clearInterval(timer);if(tries>120)clearInterval(timer)},250);
 })();

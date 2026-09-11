@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         RON ClipTools
+// @name         ClipTools [RON LABS]
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.2
+// @version      2.4.3
 // @description  Clip Your Buildnow GG clips in style
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
@@ -409,7 +409,7 @@
         panel.id = ID;
         panel.innerHTML = `
             <div class="ct-header">
-                <div class="ct-title">ClipTools</div>
+                <div class="ct-title">ClipTools [RON LABS]</div>
                 <button class="ct-close">×</button>
             </div>
             <button class="ct-btn ct-clip"><span>Clip (15s)</span><kbd>${settings.clip}</kbd></button>

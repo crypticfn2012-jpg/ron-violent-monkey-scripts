@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ClipTools [RON LABS]
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.3
+// @version      2.4.4
 // @description  Clip Your Buildnow GG clips in style
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
@@ -438,7 +438,7 @@
             #${ID} .ct-settings-panel input{width:100%!important;height:30px!important;border-radius:6px!important;border:1px solid rgba(255,255,255,.1)!important;background:rgba(0,0,0,.3)!important;color:#fff!important;padding:0 8px!important;font:11px monospace!important}
             #${ID} .ct-settings-panel input:focus{outline:none!important;border-color:rgba(100,200,150,.4)!important}
             #${ID} .ct-save{width:100%!important;margin-top:8px!important;height:32px!important;border:0!important;border-radius:7px!important;background:rgba(100,200,150,.15)!important;color:#88cc99!important;cursor:pointer!important;font:11px system-ui,sans-serif!important;font-weight:700!important}
-            #${ID} .ct-save:hover{background:rgba(100,200,150,.22)!important}
+            #${ID} .ct-save:hover{background:rgba(26, 214, 120, 0.22)!important}
         `;
         document.head.appendChild(style);
         document.body.appendChild(panel);

@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         ClipTools [RON LABS]
+// @name         ClipNow [RON LABS]
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.4
+// @version      2.4.5
 // @description  Clip Your Buildnow GG clips in style
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const ID = '__CLIPTOOLS_V240__';
+    const ID = '__ClipNow_V240__';
     if (window[ID]) return;
     window[ID] = true;
 
@@ -196,7 +196,7 @@
                 videoBitsPerSecond: BITRATE
             });
         } catch (e) {
-            console.error('ClipTools: MediaRecorder create failed', e);
+            console.error('ClipNow: MediaRecorder create failed', e);
             return null;
         }
 
@@ -204,12 +204,12 @@
             if (e.data && e.data.size > 0) chunks.push(e.data);
         };
 
-        recorder.onerror = e => console.error('ClipTools recorder error', e);
+        recorder.onerror = e => console.error('ClipNow recorder error', e);
 
         try {
             recorder.start();
         } catch (err) {
-            console.error('ClipTools start failed', err);
+            console.error('ClipNow start failed', err);
             return null;
         }
 
@@ -257,7 +257,7 @@
         }, SLOT_INTERVAL);
 
         updateStatus('Recording ● ');
-        console.log('RON ClipTools');
+        console.log('RON ClipNow');
     }
 
     function stopRolling() {
@@ -320,7 +320,7 @@
             downloadFile(blob, getFileName('clip-1080p60-', ext));
             updateStatus(`1080p60 Clip saved (${Math.round(bestAge)}s)`, true);
         } catch (err) {
-            console.error('ClipTools saveClip', err);
+            console.error('ClipNow saveClip', err);
             updateStatus('Save failed', true);
         }
 
@@ -372,16 +372,16 @@
 
             canvasStream.getVideoTracks().forEach(t => {
                 t.onended = () => {
-                    console.warn('ClipTools: track ended – restarting');
+                    console.warn('ClipNow: track ended – restarting');
                     stopEverything();
                     setTimeout(() => startStream(0), 1000);
                 };
             });
 
             startRolling();
-            console.log(`ClipTools 1080p60 ready → ${mimeType} | ${size.w}x${size.h} @ ${CAPTURE_FPS}fps | ${BITRATE/1e6}Mbps`);
+            console.log(`ClipNow 1080p60 ready → ${mimeType} | ${size.w}x${size.h} @ ${CAPTURE_FPS}fps | ${BITRATE/1e6}Mbps`);
         } catch (err) {
-            console.error('ClipTools startStream', err);
+            console.error('ClipNow startStream', err);
             updateStatus('Start failed', true);
             canvasStream = null;
         }
@@ -409,7 +409,7 @@
         panel.id = ID;
         panel.innerHTML = `
             <div class="ct-header">
-                <div class="ct-title">ClipTools [RON LABS]</div>
+                <div class="ct-title">ClipNow [RON LABS]</div>
                 <button class="ct-close">×</button>
             </div>
             <button class="ct-btn ct-clip"><span>Clip (15s)</span><kbd>${settings.clip}</kbd></button>
@@ -542,7 +542,7 @@
             setTimeout(() => startStream(0), 700);
         }
 
-        console.log('ClipTools 1080p60 ready');
+        console.log('ClipNow 1080p60 ready');
     }
 
     initialize();

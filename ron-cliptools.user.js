@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.1
-// @description  Real 1080p60 clips for BuildNow GG
+// @version      2.4.2
+// @description  Clip Your Buildnow GG clips in style
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
 // @match        *://*.crazygames.com/game/buildnow-gg*
@@ -409,7 +409,7 @@
         panel.id = ID;
         panel.innerHTML = `
             <div class="ct-header">
-                <div class="ct-title">ClipTools 1080p60</div>
+                <div class="ct-title">ClipTools</div>
                 <button class="ct-close">×</button>
             </div>
             <button class="ct-btn ct-clip"><span>Clip (15s)</span><kbd>${settings.clip}</kbd></button>

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         RON ClipTools
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.0
+// @version      2.4.1
 // @description  Real 1080p60 clips for BuildNow GG
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const ID = '__CLIPTOOLS_V2.4.0__';
+    const ID = '__CLIPTOOLS_V240__';
     if (window[ID]) return;
     window[ID] = true;
 

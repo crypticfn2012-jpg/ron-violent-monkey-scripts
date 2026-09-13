@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ClipNow [RON LABS]
 // @namespace    https://roncool.cc.cd/
-// @version      2.4.5
+// @version      2.5
 // @description  Clip Your Buildnow GG clips in style
 // @match        *://buildnow.gg/*
 // @match        *://*.buildnow.gg/*
@@ -14,7 +14,7 @@
 (function () {
     'use strict';
 
-    const ID = '__ClipNow_V240__';
+    const ID = '__ClipNow_V247__';
     if (window[ID]) return;
     window[ID] = true;
 
@@ -23,16 +23,14 @@
         location.hostname.indexOf('crazygames.com') !== -1 &&
         location.pathname.indexOf('/game/buildnow-gg') === 0;
 
-    // ===== Real Quality Settings =====
     const CLIP_SECONDS   = 15;
-    const NUM_SLOTS      = 3;            // lower = better performance
-    const SLOT_INTERVAL  = 5000;
+    const NUM_SLOTS      = 2;
+    const SLOT_INTERVAL  = 7500;
     const CAPTURE_FPS    = 60;
     const TARGET_WIDTH   = 1920;
     const TARGET_HEIGHT  = 1080;
-    const BITRATE        = 18_000_000;   // 16 Mbps
+    const BITRATE        = 12_000_000;
 
-    // ===== State =====
     let panel = null;
     let settingsPanel = null;
     let gameCanvas = null;
@@ -70,7 +68,7 @@
         if (temporary) {
             clearTimeout(updateStatus.timer);
             updateStatus.timer = setTimeout(() => {
-                el.textContent = canvasStream ? 'Recording ● 1080p60' : 'Ready';
+                el.textContent = canvasStream ? 'Recording ●' : 'Ready';
             }, 2500);
         }
     }
@@ -91,6 +89,15 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+
+    function downloadDataUrl(dataUrl, name) {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
     }
 
     function getGameCanvas() {
@@ -125,31 +132,37 @@
         return '';
     }
 
-    function setupRecordCanvas(source) {
+    function setupRecordCanvas() {
         if (!recordCanvas) {
             recordCanvas = document.createElement('canvas');
             recordCanvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
             document.body.appendChild(recordCanvas);
-            recordCtx = recordCanvas.getContext('2d', { alpha: false });
+            recordCtx = recordCanvas.getContext('2d', { alpha: false, desynchronized: true });
+            recordCtx.imageSmoothingEnabled = true;
+            recordCtx.imageSmoothingQuality = 'high';
         }
 
-        // Force 1080p output
-        let targetW = TARGET_WIDTH;
-        let targetH = TARGET_HEIGHT;
-
-        // Keep even
-        targetW = targetW - (targetW % 2);
-        targetH = targetH - (targetH % 2);
+        const targetW = TARGET_WIDTH - (TARGET_WIDTH % 2);
+        const targetH = TARGET_HEIGHT - (TARGET_HEIGHT % 2);
 
         if (recordCanvas.width !== targetW || recordCanvas.height !== targetH) {
             recordCanvas.width = targetW;
             recordCanvas.height = targetH;
+            recordCtx.imageSmoothingEnabled = true;
+            recordCtx.imageSmoothingQuality = 'high';
         }
 
-        recordCtx.imageSmoothingEnabled = true;
-        recordCtx.imageSmoothingQuality = 'high';
-
         return { w: targetW, h: targetH };
+    }
+
+    function paintFrame() {
+        if (!gameCanvas || !recordCtx || !recordCanvas) return false;
+        try {
+            recordCtx.drawImage(gameCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
+            return true;
+        } catch (_) {
+            return false;
+        }
     }
 
     function startDrawLoop() {
@@ -159,22 +172,14 @@
         let last = 0;
 
         function tick(now) {
-            if (!gameCanvas || !recordCtx) {
-                drawTimer = requestAnimationFrame(tick);
-                return;
-            }
-
-            if (now - last >= interval - 0.5) {
-                last = now;
-                try {
-                    // Scale the game canvas into 1080p cleanly
-                    recordCtx.imageSmoothingEnabled = true;
-                    recordCtx.imageSmoothingQuality = 'high';
-                    recordCtx.drawImage(gameCanvas, 0, 0, recordCanvas.width, recordCanvas.height);
-                } catch (_) {}
-            }
             drawTimer = requestAnimationFrame(tick);
+            if (!gameCanvas || !recordCtx || !canvasStream) return;
+            if (!slots.length) return;
+            if (now - last < interval - 0.5) return;
+            last = now;
+            paintFrame();
         }
+
         drawTimer = requestAnimationFrame(tick);
     }
 
@@ -203,7 +208,6 @@
         recorder.ondataavailable = e => {
             if (e.data && e.data.size > 0) chunks.push(e.data);
         };
-
         recorder.onerror = e => console.error('ClipNow recorder error', e);
 
         try {
@@ -223,11 +227,16 @@
                 return;
             }
             const rec = slot.recorder;
-            rec.onstop = () => {
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
                 const blob = new Blob(slot.chunks, { type: mimeType });
                 resolve(blob.size > 2000 ? blob : null);
             };
-            try { rec.stop(); } catch (_) { resolve(null); }
+            rec.onstop = finish;
+            try { rec.stop(); } catch (_) { finish(); }
+            setTimeout(finish, 3000);
         });
     }
 
@@ -242,22 +251,19 @@
         head = 0;
 
         slotTimer = setInterval(() => {
+            if (!slots.length) return;
             const old = slots[head];
             if (old) {
                 try {
-                    if (old.recorder && old.recorder.state !== 'inactive') {
-                        old.recorder.stop();
-                    }
+                    if (old.recorder && old.recorder.state !== 'inactive') old.recorder.stop();
                 } catch (_) {}
             }
-
             const fresh = createSlot();
             if (fresh) slots[head] = fresh;
             head = (head + 1) % slots.length;
         }, SLOT_INTERVAL);
 
-        updateStatus('Recording ● ');
-        console.log('RON ClipNow');
+        updateStatus('Recording ●');
     }
 
     function stopRolling() {
@@ -284,7 +290,7 @@
         }
 
         isSaving = true;
-        updateStatus('Saving 1080p60 clip…');
+        updateStatus('Saving clip…');
 
         try {
             let best = null;
@@ -317,8 +323,8 @@
             if (idx !== -1) slots[idx] = createSlot();
 
             const ext = mimeType.startsWith('video/mp4') ? '.mp4' : '.webm';
-            downloadFile(blob, getFileName('clip-1080p60-', ext));
-            updateStatus(`1080p60 Clip saved (${Math.round(bestAge)}s)`, true);
+            downloadFile(blob, getFileName('clip-', ext));
+            updateStatus('Clip saved', true);
         } catch (err) {
             console.error('ClipNow saveClip', err);
             updateStatus('Save failed', true);
@@ -327,18 +333,92 @@
         isSaving = false;
     }
 
+    // ===== FIXED SCREENSHOT =====
+    // WebGL/game canvases often block toBlob/toDataURL.
+    // We paint into our 2D recordCanvas (same as video) then export that.
     function captureScreenshot() {
-        const canvas = getGameCanvas();
-        if (!canvas) {
+        gameCanvas = getGameCanvas() || gameCanvas;
+
+        if (!gameCanvas) {
             updateStatus('Canvas not found', true);
             return;
         }
+
+        // Ensure record canvas exists even if stream not fully ready
+        try { setupRecordCanvas(); } catch (_) {}
+
+        const name = getFileName('screenshot-', '.png');
+
+        // Path 1: paint game → recordCanvas → toBlob
+        if (recordCanvas && recordCtx) {
+            const painted = paintFrame();
+            if (painted) {
+                try {
+                    recordCanvas.toBlob(blob => {
+                        if (blob && blob.size > 0) {
+                            downloadFile(blob, name);
+                            updateStatus('Screenshot saved', true);
+                            return;
+                        }
+                        // Path 2: dataURL from record canvas
+                        try {
+                            const url = recordCanvas.toDataURL('image/png');
+                            if (url && url.length > 100) {
+                                downloadDataUrl(url, name);
+                                updateStatus('Screenshot saved', true);
+                                return;
+                            }
+                        } catch (_) {}
+                        fallbackGameShot(name);
+                    }, 'image/png');
+                    return;
+                } catch (_) {
+                    // fall through
+                }
+            }
+        }
+
+        fallbackGameShot(name);
+    }
+
+    function fallbackGameShot(name) {
+        const canvas = getGameCanvas();
+        if (!canvas) {
+            updateStatus('Screenshot failed', true);
+            return;
+        }
+
+        // Path 3: direct game canvas toBlob
         try {
             canvas.toBlob(blob => {
-                if (!blob) throw new Error('toBlob failed');
-                downloadFile(blob, getFileName('screenshot-', '.png'));
-                updateStatus('Screenshot saved', true);
+                if (blob && blob.size > 0) {
+                    downloadFile(blob, name);
+                    updateStatus('Screenshot saved', true);
+                    return;
+                }
+                // Path 4: dataURL
+                try {
+                    const url = canvas.toDataURL('image/png');
+                    if (url && url.length > 100) {
+                        downloadDataUrl(url, name);
+                        updateStatus('Screenshot saved', true);
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Screenshot dataURL failed', e);
+                }
+                updateStatus('Screenshot failed', true);
             }, 'image/png');
+            return;
+        } catch (e) {
+            console.error('Screenshot toBlob failed', e);
+        }
+
+        // Path 5: last resort dataURL
+        try {
+            const url = canvas.toDataURL('image/png');
+            downloadDataUrl(url, name);
+            updateStatus('Screenshot saved', true);
         } catch (e) {
             console.error(e);
             updateStatus('Screenshot failed', true);
@@ -365,21 +445,19 @@
         }
 
         try {
-            const size = setupRecordCanvas(gameCanvas);
+            setupRecordCanvas();
             startDrawLoop();
-
             canvasStream = recordCanvas.captureStream(CAPTURE_FPS);
 
             canvasStream.getVideoTracks().forEach(t => {
                 t.onended = () => {
-                    console.warn('ClipNow: track ended – restarting');
                     stopEverything();
                     setTimeout(() => startStream(0), 1000);
                 };
             });
 
             startRolling();
-            console.log(`ClipNow 1080p60 ready → ${mimeType} | ${size.w}x${size.h} @ ${CAPTURE_FPS}fps | ${BITRATE/1e6}Mbps`);
+            updateStatus('Recording ●');
         } catch (err) {
             console.error('ClipNow startStream', err);
             updateStatus('Start failed', true);
@@ -400,7 +478,6 @@
         }
     }
 
-    // ===== UI only inside the real game =====
     function buildInterface() {
         if (!isGameFrame) return;
         if (!document.body || document.getElementById(ID)) return;
@@ -494,24 +571,14 @@
         return false;
     }
 
-    // Keyboard
     document.addEventListener('keydown', e => {
         if (isCrazyGamesShell) return;
-
         const t = e.target;
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-
         const key = String(e.key || '').toUpperCase();
-        if (key === settings.panel) {
-            togglePanel();
-            e.preventDefault();
-        } else if (key === settings.shot) {
-            captureScreenshot();
-            e.preventDefault();
-        } else if (key === settings.clip) {
-            saveClip();
-            e.preventDefault();
-        }
+        if (key === settings.panel) { togglePanel(); e.preventDefault(); }
+        else if (key === settings.shot) { captureScreenshot(); e.preventDefault(); }
+        else if (key === settings.clip) { saveClip(); e.preventDefault(); }
     }, true);
 
     if (isCrazyGamesShell) {
@@ -536,13 +603,10 @@
             setTimeout(initialize, 40);
             return;
         }
-
         if (isGameFrame) {
             buildInterface();
             setTimeout(() => startStream(0), 700);
         }
-
-        console.log('ClipNow 1080p60 ready');
     }
 
     initialize();

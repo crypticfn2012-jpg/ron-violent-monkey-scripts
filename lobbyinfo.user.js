@@ -15,8 +15,9 @@
 (function () {
     'use strict';
 
-    // Run independently in the BuildNow page and its Unity game iframe.
-    // The iframe sends detected events to the top page.
+    // Run in whichever matched frame actually owns the game.
+    // A Unity iframe is allowed to render its own panel so the panel is
+    // above the Unity canvas instead of being trapped underneath the iframe.
     const TOP = window.top === window.self;
     const BRIDGE_KEY = '__RON_LOBBY_INFO__';
     const INSTANCE_KEY = '__RON_LOBBY_INFO_INSTANCE__';
@@ -469,7 +470,6 @@
     }
 
     function createUI() {
-        if (!TOP) return;
         if (document.getElementById('ron-lobby-info')) return;
 
         createStyle();
@@ -503,8 +503,6 @@
     }
 
     function render() {
-        if (!TOP) return;
-
         const panel = document.getElementById('ron-lobby-info');
         const toggle = document.getElementById('ron-lobby-toggle');
         if (!panel) return;
@@ -591,24 +589,69 @@
         toggle.style.display = state.visible ? 'none' : 'block';
     }
 
+    function hasUnityGameFrame() {
+        if (!TOP) return false;
+
+        try {
+            return Array.from(document.querySelectorAll('iframe')).some(frame => {
+                const src = frame.getAttribute('src') || '';
+                return /buildnow-gg\.game-files\.crazygames\.com\/unity\/|buildnow/i.test(src);
+            });
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function isVisibleGameContext() {
+        // Always render inside the Unity iframe when this script matched it.
+        if (!TOP) return true;
+
+        // When BuildNow is embedding Unity in an iframe, the parent document
+        // cannot reliably draw over that iframe. Let the iframe instance own UI.
+        return !hasUnityGameFrame();
+    }
+
     function boot() {
-        if (TOP) {
+        installConsoleHook();
+        window.addEventListener('message', handleIncomingMessage, false);
+
+        const startUI = () => {
+            if (!isVisibleGameContext()) return;
+
             createUI();
             detectUser();
-            addEvent('Ron Lobby Info loaded');
+
+            if (!state.events.length) {
+                addEvent('Ron Lobby Info loaded');
+            }
+        };
+
+        if (document.documentElement) {
+            startUI();
+        } else {
+            document.addEventListener('DOMContentLoaded', startUI, { once: true });
         }
 
-        installConsoleHook();
-
-        window.addEventListener('message', handleIncomingMessage, false);
+        // The Unity iframe is often created after BuildNow first loads.
+        // Re-check so the parent panel does not sit underneath the iframe.
+        if (TOP) {
+            setInterval(() => {
+                if (hasUnityGameFrame()) {
+                    const panel = document.getElementById('ron-lobby-info');
+                    const toggle = document.getElementById('ron-lobby-toggle');
+                    if (panel) panel.remove();
+                    if (toggle) toggle.remove();
+                } else {
+                    startUI();
+                }
+            }, 1000);
+        }
 
         // Other scripts sometimes replace console methods after us.
         // Re-attach without creating duplicate wrappers.
         setInterval(installConsoleHook, 1500);
 
-        if (TOP) {
-            setInterval(detectUser, 3000);
-        }
+        setInterval(detectUser, 3000);
     }
 
     document.addEventListener('keydown', event => {
@@ -618,9 +661,5 @@
         }
     }, true);
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', boot, { once: true });
-    } else {
-        boot();
-    }
+    boot();
 })();

@@ -613,9 +613,6 @@
 
     document.addEventListener('keydown', event => {
         if (event.ctrlKey && event.shiftKey && event.code === 'KeyL') {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-
             state.visible = !state.visible;
             render();
         }

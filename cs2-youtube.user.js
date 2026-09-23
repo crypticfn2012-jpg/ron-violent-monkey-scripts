@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Ron | CS2 YouTube
 // @namespace    https://ron.cool/
-// @version      3.0.0
+// @version      3.1.0
 // @description  Turns YouTube thumbnails into one CS2 thumbnail. Toggle with Shift+I.
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
 // @match        https://m.youtube.com/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_registerMenuCommand
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
 // @downloadURL  https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
@@ -156,7 +156,6 @@
 
   function onKey(event) {
     if (
-      event.type === "keydown" &&
       event.code === "KeyI" &&
       event.shiftKey &&
       !event.ctrlKey &&
@@ -172,6 +171,13 @@
 
   window.addEventListener("keydown", onKey, true);
   document.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", function () {}, true);
+
+  if (typeof GM_registerMenuCommand === "function") {
+    GM_registerMenuCommand("Toggle CS2 YouTube", function () {
+      setRunning(!running);
+    });
+  }
 
   setInterval(function () {
     if (running) scan();

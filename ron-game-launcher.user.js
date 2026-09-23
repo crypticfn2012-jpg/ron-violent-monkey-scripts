@@ -39,7 +39,7 @@
     ["Paper.io 2", "https://paper-io.com/", "Arcade"],
     ["LOLBeans", "https://lolbeans.io/", "Party"],
     ["BattleDudes", "https://battledudes.io/", "Shooter"],
-    ["Ev.io", "https://ev.io/", "Shooter"]
+    ["Ev.io", "https://ev.io/", "Shooter"],
     ["Clutcher.io", "https://clutcher.io/", "Shooter"]
   ];
 

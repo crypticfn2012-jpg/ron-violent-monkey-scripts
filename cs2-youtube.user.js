@@ -1,73 +1,60 @@
 // ==UserScript==
 // @name         Ron | CS2 YouTube
 // @namespace    https://ron.cool/
-// @version      2.0.0
-// @description  Replaces YouTube thumbnails with one CS2 thumbnail. Toggle with Shift+I.
-// @match        https://*.youtube.com/*
-// @run-at       document-end
+// @version      3.0.0
+// @description  Turns YouTube thumbnails into one CS2 thumbnail. Toggle with Shift+I.
+// @match        https://www.youtube.com/*
+// @match        https://youtube.com/*
+// @match        https://m.youtube.com/*
+// @run-at       document-idle
 // @grant        none
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
 // @downloadURL  https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
 // ==/UserScript==
 
-(() => {
+(function () {
   "use strict";
 
-  if (window.__RON_CS2_YOUTUBE_V2__) return;
-  window.__RON_CS2_YOUTUBE_V2__ = true;
+  var IMAGE = "https://i.ytimg.com/vi/AaChIhfwEks/maxresdefault.jpg";
+  var running = false;
+  var panel = null;
+  var observer = null;
+  var originals = new Map();
 
-  const THUMBNAIL = "https://i.ytimg.com/vi/AaChIhfwEks/maxresdefault.jpg";
-  const changed = new WeakMap();
-
-  let enabled = false;
-  let panel = null;
-  let scanTimer = null;
-  let observer = null;
-
-  const SELECTOR = [
+  var thumbSelector = [
     "ytd-thumbnail img",
     "ytd-rich-grid-media img",
     "ytd-video-renderer img",
     "ytd-compact-video-renderer img",
     "ytd-playlist-video-renderer img",
     "ytd-grid-video-renderer img",
-    "ytd-reel-item-renderer img",
-    "ytm-video-with-context-renderer img"
+    "ytd-reel-item-renderer img"
   ].join(",");
 
-  function save(img) {
-    if (!changed.has(img)) {
-      changed.set(img, {
+  function swap(img) {
+    if (!originals.has(img)) {
+      originals.set(img, {
         src: img.getAttribute("src"),
         srcset: img.getAttribute("srcset"),
         sizes: img.getAttribute("sizes")
       });
     }
-  }
 
-  function replace(img) {
-    if (!(img instanceof HTMLImageElement)) return;
-
-    save(img);
-
-    if (img.getAttribute("src") !== THUMBNAIL) {
-      img.setAttribute("src", THUMBNAIL);
-    }
-
+    img.src = IMAGE;
     img.removeAttribute("srcset");
     img.removeAttribute("sizes");
   }
 
   function scan() {
-    if (!enabled) return;
-    document.querySelectorAll(SELECTOR).forEach(replace);
+    if (!running) return;
+    var imgs = document.querySelectorAll(thumbSelector);
+    for (var i = 0; i < imgs.length; i++) swap(imgs[i]);
   }
 
   function restore() {
-    document.querySelectorAll(SELECTOR).forEach(img => {
-      const old = changed.get(img);
-      if (!old) return;
+    originals.forEach(function (old, img) {
+      if (!img || !img.isConnected) return;
 
       if (old.src === null) img.removeAttribute("src");
       else img.setAttribute("src", old.src);
@@ -77,115 +64,70 @@
 
       if (old.sizes === null) img.removeAttribute("sizes");
       else img.setAttribute("sizes", old.sizes);
-
-      changed.delete(img);
     });
+
+    originals.clear();
   }
 
-  function removePanel() {
-    if (!panel) return;
-    panel.remove();
-    panel = null;
+  function closePanel() {
+    if (panel) {
+      panel.remove();
+      panel = null;
+    }
   }
 
-  function makePanel() {
-    removePanel();
+  function createPanel() {
+    closePanel();
 
     panel = document.createElement("div");
-    panel.id = "ron-cs2-youtube-panel";
 
-    panel.innerHTML = `
-      <div class="ron-cs2-title">CS2 YouTube</div>
-      <div class="ron-cs2-status">CS2 thumbnails are ON</div>
-      <div class="ron-cs2-actions">
-        <button type="button" data-action="revert">Revert</button>
-        <button type="button" data-action="close">Close</button>
-      </div>
-      <div class="ron-cs2-hint">Shift + I to toggle</div>
-    `;
+    panel.style.cssText = [
+      "position:fixed",
+      "top:24px",
+      "right:24px",
+      "z-index:2147483647",
+      "width:240px",
+      "padding:16px",
+      "background:#0f120f",
+      "color:#fff",
+      "border:1px solid #394139",
+      "border-radius:8px",
+      "box-shadow:0 12px 40px rgba(0,0,0,.55)",
+      "font-family:Arial,sans-serif",
+      "font-size:13px",
+      "line-height:1.4",
+      "display:block",
+      "visibility:visible",
+      "opacity:1",
+      "pointer-events:auto"
+    ].join(";");
 
-    const style = document.createElement("style");
-    style.textContent = `
-      #ron-cs2-youtube-panel{
-        position:fixed!important;
-        right:18px!important;
-        top:18px!important;
-        z-index:2147483647!important;
-        width:230px!important;
-        padding:15px!important;
-        box-sizing:border-box!important;
-        background:#101210!important;
-        color:#f4f7f4!important;
-        border:1px solid #303630!important;
-        border-radius:8px!important;
-        box-shadow:0 14px 45px rgba(0,0,0,.45)!important;
-        font:12px Arial,sans-serif!important;
-        line-height:1.4!important;
-        display:block!important;
-        visibility:visible!important;
-        opacity:1!important;
-        pointer-events:auto!important;
-      }
-      #ron-cs2-youtube-panel *{box-sizing:border-box!important}
-      #ron-cs2-youtube-panel .ron-cs2-title{font-size:15px!important;font-weight:700!important}
-      #ron-cs2-youtube-panel .ron-cs2-status{margin-top:4px!important;color:#909a92!important}
-      #ron-cs2-youtube-panel .ron-cs2-actions{display:flex!important;gap:7px!important;margin-top:12px!important}
-      #ron-cs2-youtube-panel button{
-        flex:1!important;
-        min-height:34px!important;
-        border:1px solid #394139!important;
-        border-radius:5px!important;
-        background:#1a1f1b!important;
-        color:#fff!important;
-        cursor:pointer!important;
-        font:700 11px Arial,sans-serif!important;
-      }
-      #ron-cs2-youtube-panel button:hover{background:#262c27!important}
-      #ron-cs2-youtube-panel .ron-cs2-hint{margin-top:9px!important;color:#687169!important;font-size:10px!important}
-    `;
+    panel.innerHTML =
+      '<div style="font-size:16px;font-weight:700;margin-bottom:5px">CS2 YouTube</div>' +
+      '<div id="ron-cs2-state" style="color:#98a198;font-size:11px">CS2 thumbnails are ON</div>' +
+      '<div style="display:flex;gap:8px;margin-top:13px">' +
+        '<button id="ron-cs2-revert" style="flex:1;height:35px;border:1px solid #3b433c;border-radius:6px;background:#1a1e1b;color:#fff;cursor:pointer;font-weight:700">Revert</button>' +
+        '<button id="ron-cs2-close" style="flex:1;height:35px;border:0;border-radius:6px;background:#69ff87;color:#071009;cursor:pointer;font-weight:700">Close</button>' +
+      '</div>' +
+      '<div style="margin-top:10px;color:#697269;font-size:10px">Shift + I to toggle</div>';
 
-    panel.appendChild(style);
+    (document.body || document.documentElement).appendChild(panel);
 
-    document.documentElement.appendChild(panel);
-
-    panel.querySelector('[data-action="close"]').addEventListener("click", () => {
-      disable();
-    });
-
-    panel.querySelector('[data-action="revert"]').addEventListener("click", () => {
+    panel.querySelector("#ron-cs2-revert").onclick = function () {
       restore();
-      if (panel) {
-        panel.querySelector(".ron-cs2-status").textContent = "Thumbnails reverted";
-      }
-    });
+      setRunning(false);
+    };
+
+    panel.querySelector("#ron-cs2-close").onclick = function () {
+      setRunning(false);
+    };
   }
 
-  function disable() {
-    enabled = false;
+  function startObserver() {
+    if (observer) observer.disconnect();
 
-    if (scanTimer) {
-      clearInterval(scanTimer);
-      scanTimer = null;
-    }
-
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
-
-    restore();
-    removePanel();
-  }
-
-  function enable() {
-    enabled = true;
-    makePanel();
-    scan();
-
-    scanTimer = setInterval(scan, 700);
-
-    observer = new MutationObserver(() => {
-      if (enabled) scan();
+    observer = new MutationObserver(function () {
+      scan();
     });
 
     observer.observe(document.documentElement, {
@@ -194,27 +136,44 @@
     });
   }
 
-  function toggle(event) {
+  function setRunning(value) {
+    running = value;
+
+    if (running) {
+      createPanel();
+      scan();
+      startObserver();
+    } else {
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+
+      restore();
+      closePanel();
+    }
+  }
+
+  function onKey(event) {
     if (
+      event.type === "keydown" &&
       event.code === "KeyI" &&
       event.shiftKey &&
       !event.ctrlKey &&
       !event.altKey &&
-      !event.metaKey
+      !event.metaKey &&
+      !event.repeat
     ) {
       event.preventDefault();
       event.stopPropagation();
-      enabled ? disable() : enable();
+      setRunning(!running);
     }
   }
 
-  window.addEventListener("keydown", toggle, true);
-  document.addEventListener("keydown", toggle, true);
+  window.addEventListener("keydown", onKey, true);
+  document.addEventListener("keydown", onKey, true);
 
-  window.addEventListener("yt-navigate-finish", () => {
-    if (enabled) {
-      setTimeout(scan, 100);
-      setTimeout(scan, 500);
-    }
-  }, true);
+  setInterval(function () {
+    if (running) scan();
+  }, 1000);
 })();

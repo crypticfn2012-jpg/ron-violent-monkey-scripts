@@ -18,8 +18,8 @@
   window.__RON_GAME_LAUNCHER__ = true;
 
   const games = [
-    ["BuildNow.GG", "https://buildnow.gg/", "Shooter"],
-    ["1v1.LOL", "https://1v1.lol/", "Shooter"],
+    ["BuildNow.GG", "https://www.crazygames.com/game/buildnow-gg", "Shooter"],
+    ["1v1.LOL", "https://1v1lolreloaded.com/", "Shooter"],
     ["Veck.io", "https://veck.io/", "Shooter"],
     ["Kour.io", "https://kour.io/", "Shooter"],
     ["Shell Shockers", "https://shellshock.io/", "Shooter"],
@@ -40,6 +40,7 @@
     ["LOLBeans", "https://lolbeans.io/", "Party"],
     ["BattleDudes", "https://battledudes.io/", "Shooter"],
     ["Ev.io", "https://ev.io/", "Shooter"]
+    ["Clutcher.io", "https://clutcher.io/", "Shooter"]
   ];
 
   const esc = value => String(value).replace(/[&<>"']/g, c => ({

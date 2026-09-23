@@ -61,7 +61,6 @@
     function removeAd(element) {
         if (!isAdElement(element) || removed.has(element)) return;
 
-        // Never remove a game surface or an ancestor that owns one.
         if (element.matches('canvas, [data-game], [id*="game" i], [class*="game" i]')) return;
         if (element.querySelector('canvas, [data-game]')) return;
 

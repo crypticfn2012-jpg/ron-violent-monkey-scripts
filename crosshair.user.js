@@ -15,7 +15,6 @@
 (function () {
     'use strict';
 
-    // На странице 1v1 LOL RELOADED отключаем верхний слой сайта и оставляем HUD только внутри игрового фрейма.
     const isReloadedSite = location.hostname === '1v1lolreloaded.com' || location.hostname === 'www.1v1lolreloaded.com';
     if (isReloadedSite && window.top === window.self) return;
 
@@ -118,7 +117,6 @@
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
         } catch {
-            // Storage can be unavailable in some sandboxed frames.
         }
     }
 
@@ -135,7 +133,6 @@
         try {
             localStorage.setItem(PRESETS_KEY, JSON.stringify(savedPresets));
         } catch {
-            // Ignore storage failures.
         }
     }
 
@@ -990,13 +987,11 @@ ${buildCss()}`;
             try {
                 fs.appendChild(host);
             } catch {
-                // Some fullscreen elements cannot accept children.
             }
         } else if (host.parentElement !== document.documentElement && document.documentElement) {
             try {
                 document.documentElement.appendChild(host);
             } catch {
-                // Ignore.
             }
         }
     }

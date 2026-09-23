@@ -13,10 +13,6 @@
 (function () {
     'use strict';
 
-    // IMPORTANT:
-    // This compatibility edition deliberately does NOT replace window.fetch,
-    // window.WebSocket, WebSocket.prototype.send, or other global APIs.
-    // Those global hooks were the main source of conflicts with other scripts.
 
     const SCRIPT_ID = 'recte-unlocker-compat';
     if (document.getElementById(SCRIPT_ID)) return;

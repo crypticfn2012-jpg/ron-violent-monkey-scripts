@@ -2,11 +2,12 @@
 // @name         Ron Crosshair
 // @namespace    https://ron.cool/
 // @version      1.0.0
-// @description  Custom crosshair overlay and creator for BuildNow.gg.
+// @description  Custom crosshair overlay and creator for BuildNow.gg and 1v1 LOL RELOADED.
 // @author       Ron
 // @match        *://buildnow.gg/*
 // @match        *://www.buildnow.gg/*
 // @match        *://buildnow-gg.game-files.crazygames.com/unity/unity2020/*
+// @match        https://1v1lolreloaded.com/*
 // @run-at       document-start
 // @grant        none
 // ==/UserScript==

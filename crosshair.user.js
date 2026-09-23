@@ -542,7 +542,7 @@
         <div class="ron-heading">
             <div>
                 <h2 class="ron-title">RON Crosshair</h2>
-                <p class="ron-subtitle">BuildNow.gg crosshair creator</p>
+                <p class="ron-subtitle">BuildNow.gg and 1v1.lol crosshair creator</p>
             </div>
             <div class="ron-status">ON</div>
         </div>

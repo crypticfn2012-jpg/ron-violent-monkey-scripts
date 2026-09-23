@@ -1,14 +1,11 @@
 // ==UserScript==
 // @name         Ron | CS2 YouTube
 // @namespace    https://ron.cool/
-// @version      1.1.0
-// @description  Turns YouTube thumbnails into one CS2 thumbnail. Toggle with Shift+I.
-// @match        https://www.youtube.com/*
-// @match        https://youtube.com/*
-// @match        https://m.youtube.com/*
-// @run-at       document-start
+// @version      2.0.0
+// @description  Replaces YouTube thumbnails with one CS2 thumbnail. Toggle with Shift+I.
+// @match        https://*.youtube.com/*
+// @run-at       document-end
 // @grant        none
-// @inject-into  page
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
 // @downloadURL  https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js
@@ -17,32 +14,29 @@
 (() => {
   "use strict";
 
-  if (window.__RON_CS2_YOUTUBE__) return;
-  window.__RON_CS2_YOUTUBE__ = true;
+  if (window.__RON_CS2_YOUTUBE_V2__) return;
+  window.__RON_CS2_YOUTUBE_V2__ = true;
 
   const THUMBNAIL = "https://i.ytimg.com/vi/AaChIhfwEks/maxresdefault.jpg";
   const changed = new WeakMap();
-  const parentSelector = [
-    "ytd-thumbnail",
-    "ytd-rich-grid-media",
-    "ytd-video-renderer",
-    "ytd-compact-video-renderer",
-    "ytd-playlist-video-renderer",
-    "ytd-grid-video-renderer",
-    "ytd-reel-item-renderer",
-    "ytm-video-with-context-renderer"
-  ].join(",");
 
   let enabled = false;
-  let observer = null;
   let panel = null;
+  let scanTimer = null;
+  let observer = null;
 
-  function isThumbnail(img) {
-    return !!img.closest?.(parentSelector);
-  }
+  const SELECTOR = [
+    "ytd-thumbnail img",
+    "ytd-rich-grid-media img",
+    "ytd-video-renderer img",
+    "ytd-compact-video-renderer img",
+    "ytd-playlist-video-renderer img",
+    "ytd-grid-video-renderer img",
+    "ytd-reel-item-renderer img",
+    "ytm-video-with-context-renderer img"
+  ].join(",");
 
-  function replace(img) {
-    if (!isThumbnail(img)) return;
+  function save(img) {
     if (!changed.has(img)) {
       changed.set(img, {
         src: img.getAttribute("src"),
@@ -50,18 +44,28 @@
         sizes: img.getAttribute("sizes")
       });
     }
-    img.src = THUMBNAIL;
+  }
+
+  function replace(img) {
+    if (!(img instanceof HTMLImageElement)) return;
+
+    save(img);
+
+    if (img.getAttribute("src") !== THUMBNAIL) {
+      img.setAttribute("src", THUMBNAIL);
+    }
+
     img.removeAttribute("srcset");
     img.removeAttribute("sizes");
   }
 
-  function scan(root = document) {
-    if (!root.querySelectorAll) return;
-    root.querySelectorAll("img").forEach(replace);
+  function scan() {
+    if (!enabled) return;
+    document.querySelectorAll(SELECTOR).forEach(replace);
   }
 
   function restore() {
-    document.querySelectorAll("img").forEach(img => {
+    document.querySelectorAll(SELECTOR).forEach(img => {
       const old = changed.get(img);
       if (!old) return;
 
@@ -78,141 +82,139 @@
     });
   }
 
-  function ensurePanel() {
-    if (panel?.isConnected) return;
+  function removePanel() {
+    if (!panel) return;
+    panel.remove();
+    panel = null;
+  }
+
+  function makePanel() {
+    removePanel();
 
     panel = document.createElement("div");
-    panel.id = "ron-cs2-panel";
+    panel.id = "ron-cs2-youtube-panel";
 
     panel.innerHTML = `
-      <div class="ron-cs2-head">
-        <strong>CS2 YouTube</strong>
-        <span>ON</span>
+      <div class="ron-cs2-title">CS2 YouTube</div>
+      <div class="ron-cs2-status">CS2 thumbnails are ON</div>
+      <div class="ron-cs2-actions">
+        <button type="button" data-action="revert">Revert</button>
+        <button type="button" data-action="close">Close</button>
       </div>
-      <div class="ron-cs2-sub">All thumbnails are now CS2.</div>
-      <div class="ron-cs2-buttons">
-        <button id="ron-cs2-revert">Revert</button>
-        <button id="ron-cs2-close">Close</button>
-      </div>
-      <div class="ron-cs2-key">Shift + I to toggle</div>
+      <div class="ron-cs2-hint">Shift + I to toggle</div>
     `;
 
     const style = document.createElement("style");
-    style.id = "ron-cs2-style";
     style.textContent = `
-      #ron-cs2-panel{
-        position:fixed !important;
-        top:20px !important;
-        right:20px !important;
-        width:230px !important;
-        padding:15px !important;
-        z-index:2147483647 !important;
-        display:block !important;
-        visibility:visible !important;
-        opacity:1 !important;
-        pointer-events:auto !important;
-        box-sizing:border-box !important;
-        background:#101310 !important;
-        color:#f2f5f2 !important;
-        border:1px solid #303630 !important;
-        border-radius:9px !important;
-        box-shadow:0 12px 40px rgba(0,0,0,.5) !important;
-        font-family:Arial,sans-serif !important;
-        font-size:12px !important;
+      #ron-cs2-youtube-panel{
+        position:fixed!important;
+        right:18px!important;
+        top:18px!important;
+        z-index:2147483647!important;
+        width:230px!important;
+        padding:15px!important;
+        box-sizing:border-box!important;
+        background:#101210!important;
+        color:#f4f7f4!important;
+        border:1px solid #303630!important;
+        border-radius:8px!important;
+        box-shadow:0 14px 45px rgba(0,0,0,.45)!important;
+        font:12px Arial,sans-serif!important;
+        line-height:1.4!important;
+        display:block!important;
+        visibility:visible!important;
+        opacity:1!important;
+        pointer-events:auto!important;
       }
-      #ron-cs2-panel *{box-sizing:border-box !important}
-      #ron-cs2-panel .ron-cs2-head{display:flex !important;align-items:center !important;justify-content:space-between !important}
-      #ron-cs2-panel strong{font-size:15px !important}
-      #ron-cs2-panel .ron-cs2-head span{font-size:9px !important;color:#071009 !important;background:#6dff88 !important;padding:3px 6px !important;border-radius:4px !important;font-weight:800 !important}
-      #ron-cs2-panel .ron-cs2-sub{margin-top:5px !important;color:#929b94 !important;font-size:11px !important}
-      #ron-cs2-panel .ron-cs2-buttons{display:flex !important;gap:7px !important;margin-top:13px !important}
-      #ron-cs2-panel button{flex:1 !important;height:34px !important;border:1px solid #343b35 !important;border-radius:6px !important;background:#191d1a !important;color:#fff !important;font:700 11px Arial,sans-serif !important;cursor:pointer !important}
-      #ron-cs2-panel button:hover{background:#252a26 !important}
-      #ron-cs2-panel .ron-cs2-key{margin-top:10px !important;color:#687169 !important;font-size:10px !important}
+      #ron-cs2-youtube-panel *{box-sizing:border-box!important}
+      #ron-cs2-youtube-panel .ron-cs2-title{font-size:15px!important;font-weight:700!important}
+      #ron-cs2-youtube-panel .ron-cs2-status{margin-top:4px!important;color:#909a92!important}
+      #ron-cs2-youtube-panel .ron-cs2-actions{display:flex!important;gap:7px!important;margin-top:12px!important}
+      #ron-cs2-youtube-panel button{
+        flex:1!important;
+        min-height:34px!important;
+        border:1px solid #394139!important;
+        border-radius:5px!important;
+        background:#1a1f1b!important;
+        color:#fff!important;
+        cursor:pointer!important;
+        font:700 11px Arial,sans-serif!important;
+      }
+      #ron-cs2-youtube-panel button:hover{background:#262c27!important}
+      #ron-cs2-youtube-panel .ron-cs2-hint{margin-top:9px!important;color:#687169!important;font-size:10px!important}
     `;
 
     panel.appendChild(style);
 
-    const mount = () => {
-      const target = document.body || document.documentElement;
-      if (target && !panel.isConnected) target.appendChild(panel);
-    };
+    document.documentElement.appendChild(panel);
 
-    mount();
+    panel.querySelector('[data-action="close"]').addEventListener("click", () => {
+      disable();
+    });
 
-    panel.querySelector("#ron-cs2-revert").onclick = () => {
+    panel.querySelector('[data-action="revert"]').addEventListener("click", () => {
       restore();
-      setEnabled(false);
-    };
-
-    panel.querySelector("#ron-cs2-close").onclick = () => {
-      setEnabled(false);
-    };
-  }
-
-  function setEnabled(value) {
-    enabled = value;
-
-    if (enabled) {
-      ensurePanel();
-      scan();
-
-      if (observer) observer.disconnect();
-
-      observer = new MutationObserver(mutations => {
-        if (!enabled) return;
-        for (const mutation of mutations) {
-          mutation.addedNodes.forEach(node => {
-            if (node.nodeType === 1) scan(node);
-          });
-        }
-      });
-
-      observer.observe(document.documentElement || document, {
-        childList: true,
-        subtree: true
-      });
-    } else {
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-      }
-
-      restore();
-
       if (panel) {
-        panel.remove();
-        panel = null;
+        panel.querySelector(".ron-cs2-status").textContent = "Thumbnails reverted";
       }
+    });
+  }
+
+  function disable() {
+    enabled = false;
+
+    if (scanTimer) {
+      clearInterval(scanTimer);
+      scanTimer = null;
     }
+
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+
+    restore();
+    removePanel();
   }
 
-  function toggle() {
-    setEnabled(!enabled);
+  function enable() {
+    enabled = true;
+    makePanel();
+    scan();
+
+    scanTimer = setInterval(scan, 700);
+
+    observer = new MutationObserver(() => {
+      if (enabled) scan();
+    });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
   }
 
-  function keyHandler(event) {
+  function toggle(event) {
     if (
-      event.type === "keydown" &&
-      event.key.toLowerCase() === "i" &&
+      event.code === "KeyI" &&
       event.shiftKey &&
       !event.ctrlKey &&
       !event.altKey &&
       !event.metaKey
     ) {
       event.preventDefault();
-      event.stopImmediatePropagation();
-      toggle();
+      event.stopPropagation();
+      enabled ? disable() : enable();
     }
   }
 
-  window.addEventListener("keydown", keyHandler, { capture: true });
-  document.addEventListener("keydown", keyHandler, { capture: true });
+  window.addEventListener("keydown", toggle, true);
+  document.addEventListener("keydown", toggle, true);
 
   window.addEventListener("yt-navigate-finish", () => {
     if (enabled) {
-      ensurePanel();
-      scan();
+      setTimeout(scan, 100);
+      setTimeout(scan, 500);
     }
   }, true);
 })();

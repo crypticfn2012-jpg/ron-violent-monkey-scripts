@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Ron | CS2 YouTube
 // @namespace    https://ron.cool/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Turns YouTube thumbnails into one CS2 thumbnail. Toggle with Shift+I.
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
+// @match        https://m.youtube.com/*
 // @run-at       document-start
 // @grant        none
 // @license      MIT
@@ -16,18 +17,19 @@
   "use strict";
 
   const THUMBNAIL = "https://i.ytimg.com/vi/AaChIhfwEks/maxresdefault.jpg";
-  const TOGGLE_KEY = "Shift+I";
   const changed = new WeakMap();
+
   let enabled = false;
   let observer = null;
+  let panelHost = null;
   let panel = null;
 
-  const isThumbnailImage = img => {
-    const parent = img.closest(
-      "ytd-thumbnail, ytd-rich-grid-media, ytd-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, ytd-grid-video-renderer, ytd-reel-item-renderer, ytm-video-with-context-renderer"
-    );
-    return !!parent;
-  };
+  const thumbnailParents =
+    "ytd-thumbnail, ytd-rich-grid-media, ytd-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, ytd-grid-video-renderer, ytd-reel-item-renderer, ytm-video-with-context-renderer";
+
+  function isThumbnailImage(img) {
+    return !!img.closest?.(thumbnailParents);
+  }
 
   function saveOriginal(img) {
     if (changed.has(img)) return;
@@ -35,8 +37,7 @@
     changed.set(img, {
       src: img.getAttribute("src"),
       srcset: img.getAttribute("srcset"),
-      sizes: img.getAttribute("sizes"),
-      style: img.getAttribute("style")
+      sizes: img.getAttribute("sizes")
     });
   }
 
@@ -44,33 +45,15 @@
     if (!isThumbnailImage(img)) return;
 
     saveOriginal(img);
-    img.src = THUMBNAIL;
+    img.setAttribute("src", THUMBNAIL);
     img.removeAttribute("srcset");
     img.removeAttribute("sizes");
   }
 
-  function replaceBackgrounds(root) {
-    const elements = root.querySelectorAll
-      ? root.querySelectorAll(
-          "ytd-thumbnail, ytd-rich-grid-media, ytd-video-renderer, ytd-compact-video-renderer, ytd-playlist-video-renderer, ytd-grid-video-renderer, ytd-reel-item-renderer"
-        )
-      : [];
-
-    elements.forEach(el => {
-      const style = getComputedStyle(el);
-      if (style.backgroundImage && style.backgroundImage !== "none") {
-        const current = el.style.backgroundImage;
-        if (!el.dataset.ronCs2BgSaved) {
-          el.dataset.ronCs2BgSaved = current;
-        }
-        el.style.backgroundImage = `url("${THUMBNAIL}")`;
-      }
-    });
-  }
-
   function apply(root = document) {
-    root.querySelectorAll?.("img").forEach(replaceImage);
-    replaceBackgrounds(root);
+    if (!root?.querySelectorAll) return;
+
+    root.querySelectorAll("img").forEach(replaceImage);
   }
 
   function restore() {
@@ -78,104 +61,158 @@
       const original = changed.get(img);
       if (!original) return;
 
-      for (const [attr, value] of Object.entries(original)) {
-        if (value === null) img.removeAttribute(attr);
-        else img.setAttribute(attr, value);
-      }
+      Object.entries(original).forEach(([name, value]) => {
+        if (value === null) img.removeAttribute(name);
+        else img.setAttribute(name, value);
+      });
+
       changed.delete(img);
     });
-
-    document.querySelectorAll("[data-ron-cs2-bg-saved]").forEach(el => {
-      el.style.backgroundImage = el.dataset.ronCs2BgSaved;
-      delete el.dataset.ronCs2BgSaved;
-    });
   }
 
-  function updatePanel() {
-    if (!panel) return;
-    panel.querySelector(".ron-cs2-status").textContent =
-      enabled ? "CS2 mode is ON" : "CS2 mode is OFF";
-    panel.querySelector(".ron-cs2-revert").disabled = !enabled;
+  function setStatus(textValue) {
+    const status = panel?.querySelector("#status");
+    if (status) status.textContent = textValue;
   }
 
-  function createPanel() {
-    if (panel) return;
+  function makePanel() {
+    if (panelHost) return;
 
-    panel = document.createElement("div");
-    panel.innerHTML = `
-      <div class="ron-cs2-title">CS2 YouTube</div>
-      <div class="ron-cs2-status">CS2 mode is ON</div>
-      <button class="ron-cs2-revert" type="button">Revert thumbnails</button>
-      <div class="ron-cs2-hint">${TOGGLE_KEY} to close</div>
-    `;
+    panelHost = document.createElement("div");
+    panelHost.id = "ron-cs2-youtube-ui";
 
-    Object.assign(panel.style, {
+    Object.assign(panelHost.style, {
       position: "fixed",
-      top: "18px",
-      right: "18px",
+      top: "20px",
+      right: "20px",
       zIndex: "2147483647",
-      width: "190px",
-      padding: "14px",
-      background: "#111",
-      color: "#fff",
-      border: "1px solid #333",
-      borderRadius: "8px",
-      boxShadow: "0 8px 30px rgba(0,0,0,.35)",
-      fontFamily: "Arial, sans-serif",
-      fontSize: "12px"
+      width: "220px",
+      pointerEvents: "auto"
     });
+
+    const shadow = panelHost.attachShadow({ mode: "closed" });
 
     const style = document.createElement("style");
     style.textContent = `
-      .ron-cs2-title{font-size:14px;font-weight:700;margin-bottom:5px}
-      .ron-cs2-status{color:#aaa;margin-bottom:11px}
-      .ron-cs2-revert{width:100%;border:0;border-radius:5px;padding:8px;background:#fff;color:#111;font-weight:700;cursor:pointer}
-      .ron-cs2-revert:disabled{opacity:.45;cursor:default}
-      .ron-cs2-hint{margin-top:9px;color:#777;font-size:10px}
+      *{box-sizing:border-box}
+      .panel{
+        width:220px;
+        padding:14px;
+        border:1px solid #303530;
+        border-radius:10px;
+        background:#0e110f;
+        color:#f2f5f2;
+        font:12px/1.4 Arial,sans-serif;
+        box-shadow:0 12px 35px rgba(0,0,0,.42);
+      }
+      .title{
+        font-size:15px;
+        font-weight:700;
+        letter-spacing:-.01em;
+      }
+      .status{
+        margin-top:4px;
+        color:#8f9a91;
+        font-size:11px;
+      }
+      .buttons{
+        display:flex;
+        gap:7px;
+        margin-top:12px;
+      }
+      button{
+        appearance:none;
+        border:1px solid #303730;
+        border-radius:6px;
+        min-height:34px;
+        padding:0 10px;
+        background:#171b18;
+        color:#f2f5f2;
+        font:700 11px Arial,sans-serif;
+        cursor:pointer;
+      }
+      button:hover{background:#202620}
+      .close{
+        flex:1;
+        background:#6dff88;
+        border-color:#6dff88;
+        color:#071009;
+      }
+      .revert{flex:1}
+      .hint{
+        margin-top:10px;
+        color:#667168;
+        font-size:10px;
+      }
     `;
 
-    document.documentElement.appendChild(style);
-    document.documentElement.appendChild(panel);
+    panel = document.createElement("div");
+    panel.className = "panel";
+    panel.innerHTML = `
+      <div class="title">CS2 YouTube</div>
+      <div class="status" id="status">CS2 mode is ON</div>
+      <div class="buttons">
+        <button class="close" id="close">Close</button>
+        <button class="revert" id="revert">Revert</button>
+      </div>
+      <div class="hint">Shift + I toggles CS2 mode</div>
+    `;
 
-    panel.querySelector(".ron-cs2-revert").addEventListener("click", () => {
-      enabled = false;
-      if (observer) observer.disconnect();
+    shadow.append(style, panel);
+
+    const mount = () => {
+      if (!panelHost.isConnected) document.documentElement.appendChild(panelHost);
+    };
+
+    if (document.documentElement) mount();
+    else document.addEventListener("DOMContentLoaded", mount, { once: true });
+
+    panel.querySelector("#close").addEventListener("click", disable);
+    panel.querySelector("#revert").addEventListener("click", () => {
       restore();
-      updatePanel();
+      enabled = false;
+      disconnectObserver();
+      setStatus("CS2 mode is OFF");
     });
+  }
+
+  function disconnectObserver() {
+    if (!observer) return;
+    observer.disconnect();
+    observer = null;
   }
 
   function enable() {
     enabled = true;
-    createPanel();
+    makePanel();
     apply();
+
+    disconnectObserver();
 
     observer = new MutationObserver(mutations => {
       if (!enabled) return;
+
       for (const mutation of mutations) {
-        mutation.addedNodes.forEach(node => {
-          if (node.nodeType === 1) apply(node);
-        });
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) apply(node);
+        }
       }
     });
 
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
+    const target = document.documentElement || document;
+    observer.observe(target, { childList: true, subtree: true });
 
-    updatePanel();
+    setStatus("CS2 mode is ON");
   }
 
   function disable() {
     enabled = false;
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
+    disconnectObserver();
     restore();
-    if (panel) {
-      panel.remove();
+
+    if (panelHost) {
+      panelHost.remove();
+      panelHost = null;
       panel = null;
     }
   }
@@ -185,7 +222,7 @@
     else enable();
   }
 
-  window.addEventListener("keydown", event => {
+  document.addEventListener("keydown", event => {
     if (
       event.key.toLowerCase() === "i" &&
       event.shiftKey &&
@@ -194,7 +231,7 @@
       !event.metaKey
     ) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       toggle();
     }
   }, true);

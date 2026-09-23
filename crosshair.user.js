@@ -15,6 +15,10 @@
 (function () {
     'use strict';
 
+    // На странице 1v1 LOL RELOADED отключаем верхний слой сайта и оставляем HUD только внутри игрового фрейма.
+    const isReloadedSite = location.hostname === '1v1lolreloaded.com' || location.hostname === 'www.1v1lolreloaded.com';
+    if (isReloadedSite && window.top === window.self) return;
+
     if (window.__RON_CROSSHAIR__) return;
     window.__RON_CROSSHAIR__ = true;
 

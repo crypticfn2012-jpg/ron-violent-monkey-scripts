@@ -320,10 +320,7 @@
         const timer =
             setInterval(() => {
 
-                /*
-                 * Keep trying until BuildNow has finished
-                 * creating its Unity bridge.
-                 */
+                
                 if (
                     attemptStartup()
                 ) {
@@ -359,10 +356,7 @@
                 return;
             }
 
-            /*
-             * Avoid needless calls if the timer fires too
-             * quickly due to browser scheduling.
-             */
+            
             if (
                 Date.now() -
                 lastApply <
@@ -401,9 +395,7 @@
         }
     };
 
-    /* =========================================================
-       Start
-       ========================================================= */
+    
 
     log(
         `RON BuildNow Potato Graphics v${CONFIG.version}`

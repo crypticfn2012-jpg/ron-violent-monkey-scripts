@@ -333,9 +333,6 @@
         isSaving = false;
     }
 
-    // ===== FIXED SCREENSHOT =====
-    // WebGL/game canvases often block toBlob/toDataURL.
-    // We paint into our 2D recordCanvas (same as video) then export that.
     function captureScreenshot() {
         gameCanvas = getGameCanvas() || gameCanvas;
 
@@ -344,12 +341,10 @@
             return;
         }
 
-        // Ensure record canvas exists even if stream not fully ready
         try { setupRecordCanvas(); } catch (_) {}
 
         const name = getFileName('screenshot-', '.png');
 
-        // Path 1: paint game → recordCanvas → toBlob
         if (recordCanvas && recordCtx) {
             const painted = paintFrame();
             if (painted) {
@@ -360,7 +355,6 @@
                             updateStatus('Screenshot saved', true);
                             return;
                         }
-                        // Path 2: dataURL from record canvas
                         try {
                             const url = recordCanvas.toDataURL('image/png');
                             if (url && url.length > 100) {
@@ -373,7 +367,6 @@
                     }, 'image/png');
                     return;
                 } catch (_) {
-                    // fall through
                 }
             }
         }
@@ -388,7 +381,6 @@
             return;
         }
 
-        // Path 3: direct game canvas toBlob
         try {
             canvas.toBlob(blob => {
                 if (blob && blob.size > 0) {
@@ -396,7 +388,6 @@
                     updateStatus('Screenshot saved', true);
                     return;
                 }
-                // Path 4: dataURL
                 try {
                     const url = canvas.toDataURL('image/png');
                     if (url && url.length > 100) {
@@ -414,7 +405,6 @@
             console.error('Screenshot toBlob failed', e);
         }
 
-        // Path 5: last resort dataURL
         try {
             const url = canvas.toDataURL('image/png');
             downloadDataUrl(url, name);

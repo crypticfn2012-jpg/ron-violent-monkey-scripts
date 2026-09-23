@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | Game Launcher
 // @namespace    https://ron.cool/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Fast keyboard-first launcher for browser games.
 // @match        *://*/*
 // @run-at       document-end
@@ -247,7 +247,7 @@
   });
 
   document.addEventListener("keydown", e => {
-    if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+    if (e.key === "F2" && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
       root.classList.contains("open") ? closeLauncher() : openLauncher();

@@ -15,9 +15,7 @@
 (function () {
     'use strict';
 
-    // Run in whichever matched frame actually owns the game.
-    // A Unity iframe is allowed to render its own panel so the panel is
-    // above the Unity canvas instead of being trapped underneath the iframe.
+   
     const TOP = window.top === window.self;
     const BRIDGE_KEY = '__RON_LOBBY_INFO__';
     const INSTANCE_KEY = '__RON_LOBBY_INFO_INSTANCE__';

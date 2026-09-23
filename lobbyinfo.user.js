@@ -171,7 +171,6 @@
             render();
         }
 
-        // A frame may expose a username without producing a player event.
         if (fromFrame && /username/i.test(text)) {
             const userMatch = text.match(/"?(?:username|name)"?\\s*[:=]\\s*["']([^"']{1,40})["']/i);
             if (userMatch) {
@@ -222,7 +221,6 @@
     function handleIncomingMessage(event) {
         if (!event.data || event.data[BRIDGE_KEY] !== true) return;
 
-        // Only accept messages sent upward by a child frame.
         if (event.source === window) return;
 
         const payload = event.data.payload;
@@ -601,11 +599,8 @@
     }
 
     function isVisibleGameContext() {
-        // Always render inside the Unity iframe when this script matched it.
         if (!TOP) return true;
 
-        // When BuildNow is embedding Unity in an iframe, the parent document
-        // cannot reliably draw over that iframe. Let the iframe instance own UI.
         return !hasUnityGameFrame();
     }
 
@@ -630,8 +625,6 @@
             document.addEventListener('DOMContentLoaded', startUI, { once: true });
         }
 
-        // The Unity iframe is often created after BuildNow first loads.
-        // Re-check so the parent panel does not sit underneath the iframe.
         if (TOP) {
             setInterval(() => {
                 if (hasUnityGameFrame()) {
@@ -645,8 +638,6 @@
             }, 1000);
         }
 
-        // Other scripts sometimes replace console methods after us.
-        // Re-attach without creating duplicate wrappers.
         setInterval(installConsoleHook, 1500);
 
         setInterval(detectUser, 3000);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | CS2 YouTube
 // @namespace    https://ron.cool/
-// @version      3.1.0
+// @version      3.2.0
 // @description  Turns YouTube thumbnails into one CS2 thumbnail. Toggle with Shift+I.
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
@@ -102,23 +102,39 @@
       "pointer-events:auto"
     ].join(";");
 
-    panel.innerHTML =
-      '<div style="font-size:16px;font-weight:700;margin-bottom:5px">CS2 YouTube</div>' +
-      '<div id="ron-cs2-state" style="color:#98a198;font-size:11px">CS2 thumbnails are ON</div>' +
-      '<div style="display:flex;gap:8px;margin-top:13px">' +
-        '<button id="ron-cs2-revert" style="flex:1;height:35px;border:1px solid #3b433c;border-radius:6px;background:#1a1e1b;color:#fff;cursor:pointer;font-weight:700">Revert</button>' +
-        '<button id="ron-cs2-close" style="flex:1;height:35px;border:0;border-radius:6px;background:#69ff87;color:#071009;cursor:pointer;font-weight:700">Close</button>' +
-      '</div>' +
-      '<div style="margin-top:10px;color:#697269;font-size:10px">Shift + I to toggle</div>';
+    function el(tag, text, css) {
+      var node = document.createElement(tag);
+      if (text) node.textContent = text;
+      if (css) node.style.cssText = css;
+      return node;
+    }
+
+    var title = el("div", "CS2 YouTube", "font-size:16px;font-weight:700;margin-bottom:5px");
+    var state = el("div", "CS2 thumbnails are ON", "color:#98a198;font-size:11px");
+    state.id = "ron-cs2-state";
+
+    var actions = el("div", "", "display:flex;gap:8px;margin-top:13px");
+    var revert = el("button", "Revert", "flex:1;height:35px;border:1px solid #3b433c;border-radius:6px;background:#1a1e1b;color:#fff;cursor:pointer;font-weight:700");
+    var close = el("button", "Close", "flex:1;height:35px;border:0;border-radius:6px;background:#69ff87;color:#071009;cursor:pointer;font-weight:700");
+
+    var hint = el("div", "Shift + I to toggle", "margin-top:10px;color:#697269;font-size:10px");
+
+    actions.appendChild(revert);
+    actions.appendChild(close);
+
+    panel.appendChild(title);
+    panel.appendChild(state);
+    panel.appendChild(actions);
+    panel.appendChild(hint);
 
     (document.body || document.documentElement).appendChild(panel);
 
-    panel.querySelector("#ron-cs2-revert").onclick = function () {
+    revert.onclick = function () {
       restore();
       setRunning(false);
     };
 
-    panel.querySelector("#ron-cs2-close").onclick = function () {
+    close.onclick = function () {
       setRunning(false);
     };
   }

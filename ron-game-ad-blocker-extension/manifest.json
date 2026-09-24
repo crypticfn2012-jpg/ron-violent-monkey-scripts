@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Ron | Game Ad Blocker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Network-level ad blocking for browser games, paired with Ron | Game Ad Cleaner.",
   "permissions": [
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback"
   ],
   "host_permissions": [
     "<all_urls>"

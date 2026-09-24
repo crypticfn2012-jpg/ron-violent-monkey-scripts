@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
 // @match        https://*.bloxd.io/*
-// @run-at       document-start
+// @run-at       document-end
 // @grant        unsafeWindow
 // @grant        GM_registerMenuCommand
 // @inject-into  page
@@ -123,6 +123,9 @@
 
   let settings = loadSettings();
   let noa = null;
+  let bloxd = null;
+  let bloxdProps = null;
+  let webpackRequire = null;
   let rendering = null;
   let objectData = null;
   let localEntry = null;
@@ -197,18 +200,38 @@
   }
 
   function getWebpackRequire() {
+    if (webpackRequire?.m) return webpackRequire;
+
     try {
       const descriptors = Object.getOwnPropertyDescriptors(win);
-      const key = Object.keys(descriptors).find(k => {
-        const setter = descriptors[k] && descriptors[k].set;
+      let key = Object.keys(descriptors).find(k => {
+        const setter = descriptors[k]?.set;
         return setter && Function.prototype.toString.call(setter).includes('++');
       });
+
+      if (!key) {
+        key = Object.keys(win).find(k => {
+          try {
+            const value = win[k];
+            return Array.isArray(value) && typeof value.push === 'function' && /webpack|chunk/i.test(k);
+          } catch {
+            return false;
+          }
+        });
+      }
+
       if (!key) return null;
-      const chunkArray = win[key];
+
+      let chunkArray = win[key];
+      try { win[key] = win[key]; } catch {}
+      chunkArray = win[key] || chunkArray;
       if (!chunkArray || typeof chunkArray.push !== 'function') return null;
+
       let req = null;
       const id = Math.floor(Math.random() * 9000000) + 1000000;
-      chunkArray.push([[id], {}, r => { req = r; }]);
+      chunkArray.push([[id], {}, runtime => { req = runtime; }]);
+
+      if (req?.m) webpackRequire = req;
       return req;
     } catch {
       return null;
@@ -216,30 +239,48 @@
   }
 
   function findNoa() {
-    if (noa?.entities && noa?.bloxd) return noa;
+    if (noa?.entities) return noa;
+
     const req = getWebpackRequire();
     if (!req?.m) return null;
 
     try {
-      for (const id of Object.keys(req.m)) {
+      const moduleIds = Object.keys(req.m);
+
+      for (const id of moduleIds) {
         const factory = req.m[id];
         if (typeof factory !== 'function') continue;
+
         const source = Function.prototype.toString.call(factory);
         if (!source.includes('nonBlocksClient:')) continue;
 
-        let mod;
-        try { mod = req(id); } catch { continue; }
+        let exported;
+        try { exported = req(id); } catch { continue; }
 
-        const roots = [
-          mod,
-          ...Object.values(mod || {}).filter(v => v && typeof v === 'object')
-        ];
+        const exportedValues = [];
+        if (exported && typeof exported === 'object') {
+          exportedValues.push(exported);
+          exportedValues.push(...Object.values(exported));
+        }
 
-        for (const root of roots) {
-          if (!root || typeof root !== 'object') continue;
-          const candidate = Object.values(root).find(v => v && v.entities && v.bloxd);
-          if (candidate) return candidate;
-          if (root.entities && root.bloxd) return root;
+        for (const candidate of exportedValues) {
+          if (!candidate || typeof candidate !== 'object') continue;
+
+          if (candidate.entities) {
+            bloxdProps = candidate;
+            bloxd = candidate.bloxd || null;
+            return candidate;
+          }
+
+          const nested = Object.values(candidate).find(value =>
+            value && typeof value === 'object' && value.entities
+          );
+
+          if (nested) {
+            bloxdProps = candidate;
+            bloxd = nested.bloxd || null;
+            return nested;
+          }
         }
       }
     } catch {}
@@ -249,11 +290,9 @@
 
   function findRendering(noaObj) {
     try {
+      if (noaObj?.rendering) return noaObj.rendering;
       return Object.values(noaObj || {}).find(v =>
-        v &&
-        typeof v === 'object' &&
-        v.thinMeshes &&
-        v.objectData
+        v && typeof v === 'object' && Array.isArray(v.thinMeshes)
       ) || null;
     } catch {
       return null;
@@ -261,36 +300,31 @@
   }
 
   function findObjectData(noaObj, renderingObj) {
-    if (renderingObj?.objectData) return renderingObj.objectData;
-    try {
-      return Object.values(noaObj || {}).find(v => v && typeof v === 'object' && v[1] && typeof v[1] === 'object') || null;
-    } catch {
-      return null;
-    }
+    return renderingObj?.objectData || null;
   }
 
   function getLocalId() {
-    const candidates = [
+    const direct = [
+      noa?.playerEntity,
       noa?.playerId,
-      noa?.bloxd?.playerId,
-      noa?.bloxd?.localPlayerId,
-      noa?.bloxd?.myPlayerId,
+      bloxd?.playerId,
       1
     ];
-    for (const id of candidates) {
-      if (id != null && (noa?.bloxd?.entityNames?.[id] || objectData?.[id])) return id;
+
+    for (const id of direct) {
+      if (id != null) return id;
     }
+
     return 1;
   }
 
   function findLocalEntry() {
     const id = getLocalId();
-    if (objectData && objectData[id]) return objectData[id];
-    if (!objectData || typeof objectData !== 'object') return null;
-    for (const value of Object.values(objectData)) {
-      if (!value || typeof value !== 'object') continue;
-      if (Object.values(value).some(v => v === id)) return value;
-    }
+    try {
+      if (noa?.bloxd?.entityNames?.[id]) return noa.bloxd.entityNames[id];
+      if (bloxd?.entityNames?.[id]) return bloxd.entityNames[id];
+    } catch {}
+
     return null;
   }
 
@@ -325,17 +359,25 @@
   }
 
   function refreshLocalMeshes() {
-    localEntry = findLocalEntry();
     localMeshes = [];
-    if (!localEntry) return;
 
-    walkObject(localEntry, node => {
-      if (!isMesh(node)) return;
-      if (localMeshes.includes(node)) return;
-      const name = String(node.name || node.id || '').toLowerCase();
-      if (/weapon|sword|pickaxe|axe|shovel|item|tool|held|inventory/.test(name)) return;
-      localMeshes.push(node);
-    });
+    const thinMeshes = Array.isArray(rendering?.thinMeshes) ? rendering.thinMeshes : [];
+    for (const entry of thinMeshes) {
+      const variations = entry?.meshVariations && typeof entry.meshVariations === 'object'
+        ? Object.values(entry.meshVariations)
+        : [];
+
+      const candidates = [];
+      if (entry?.mesh) candidates.push(entry.mesh);
+      for (const variation of variations) {
+        if (variation?.mesh) candidates.push(variation.mesh);
+      }
+
+      for (const mesh of candidates) {
+        if (!isMesh(mesh) || localMeshes.includes(mesh)) continue;
+        localMeshes.push(mesh);
+      }
+    }
   }
 
   function meshPart(mesh) {
@@ -395,9 +437,11 @@
 
   function applyPlayerColors() {
     if (!settings.playerEnabled || !localMeshes.length) return;
+
     for (const mesh of localMeshes) {
       const part = meshPart(mesh);
       if (!part) continue;
+
       const material = cloneMaterial(mesh);
       tintMaterial(material, settings.playerColors[part]);
     }
@@ -413,22 +457,33 @@
   }
 
   function cloneNameStyle(entry) {
-    if (savedName) return;
+    if (savedName?.entry === entry) return;
+
     savedName = {
       entry,
       style: entry?.style ? { ...entry.style } : undefined,
-      entityName: entry?.entityName
+      entityName: entry?.entityName,
+      nameColour: entry?.nameColour,
+      nameTagInfo: entry?.nameTagInfo ? safeClone(entry.nameTagInfo) : undefined
     };
   }
 
   function restoreName() {
     if (!savedName?.entry) return;
+
     const entry = savedName.entry;
     try {
       if (savedName.style === undefined) delete entry.style;
       else entry.style = { ...savedName.style };
+
       if (savedName.entityName !== undefined) entry.entityName = savedName.entityName;
+      if (savedName.nameColour !== undefined) entry.nameColour = savedName.nameColour;
+      else delete entry.nameColour;
+
+      if (savedName.nameTagInfo !== undefined) entry.nameTagInfo = safeClone(savedName.nameTagInfo);
+      else delete entry.nameTagInfo;
     } catch {}
+
     savedName = null;
   }
 
@@ -436,35 +491,50 @@
     const entry = findNameEntry();
     if (!entry) return;
 
+    if (!settings.nameEnabled && !settings.nametagEnabled) {
+      restoreName();
+      return;
+    }
+
     cloneNameStyle(entry);
+
     const style = { ...(entry.style || {}) };
 
     if (settings.nameEnabled) {
+      try { entry.nameColour = settings.nameColor; } catch {}
       style.color = settings.nameColor;
       style.colour = settings.nameColor;
-      try { entry.nameColour = settings.nameColor; } catch {}
     }
 
     if (settings.nametagEnabled) {
-      style.backgroundColor = settings.nametagBackground;
-      style.fontSize = String(settings.nametagSize) + 'px';
-      style.fontWeight = settings.nametagWeight;
+      const current = entry.nameTagInfo && typeof entry.nameTagInfo === 'object'
+        ? entry.nameTagInfo
+        : {};
+
+      entry.nameTagInfo = {
+        ...current,
+        backgroundColor: settings.nametagBackground,
+        content: [{
+          str: String(entry.entityName || ''),
+          style: {
+            color: settings.nametagColor,
+            colour: settings.nametagColor,
+            fontSize: String(settings.nametagSize) + 'px',
+            fontWeight: settings.nametagWeight
+          }
+        }],
+        border: {
+          colour: settings.nametagColor,
+          style: 'solid',
+          width: '1px',
+          applyTo: 'both'
+        }
+      };
+
       if (!settings.nameEnabled) {
         style.color = settings.nametagColor;
         style.colour = settings.nametagColor;
       }
-      try {
-        entry.nameTagInfo = {
-          ...(entry.nameTagInfo || {}),
-          backgroundColor: settings.nametagBackground,
-          content: [{ str: String(entry.entityName || ''), style: { color: settings.nametagColor } }]
-        };
-      } catch {}
-    }
-
-    if (!settings.nameEnabled && !settings.nametagEnabled) {
-      restoreName();
-      return;
     }
 
     try { entry.style = style; } catch {}
@@ -581,25 +651,32 @@
 
   function applyVisuals(force = false) {
     const now = Date.now();
-    if (!force && now - lastHookTry < 250) return;
+    if (!force && now - lastHookTry < 150) return;
 
-    if (!noa?.entities || !noa?.bloxd) {
-      noa = findNoa();
-      if (noa) hooked = true;
-    }
+    try {
+      if (!noa?.entities) {
+        noa = findNoa();
+      }
 
-    if (noa) {
-      rendering = rendering || findRendering(noa);
-      objectData = findObjectData(noa, rendering);
-      refreshLocalMeshes();
-      setNameAndNametag();
-      if (settings.playerEnabled) applyPlayerColors();
-      else restoreMaterials();
-      removeCapeIfDisabled();
-      updateStatus();
-    }
+      hooked = !!noa?.entities;
+
+      if (noa) {
+        bloxd = noa.bloxd || bloxd;
+        rendering = findRendering(noa);
+        objectData = findObjectData(noa, rendering);
+
+        refreshLocalMeshes();
+        setNameAndNametag();
+
+        if (settings.playerEnabled) applyPlayerColors();
+        else restoreMaterials();
+
+        removeCapeIfDisabled();
+      }
+    } catch {}
 
     lastHookTry = now;
+    updateStatus();
   }
 
   function usePreset(name) {
@@ -678,9 +755,9 @@
 
     const host = document.createElement('div');
     host.id = 'ron-bloxd-visual-host';
-    host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
+    host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;isolation:isolate;';
     host.appendChild(shadow);
-    (document.documentElement || document.body).appendChild(host);
+    document.documentElement.appendChild(host);
 
     const style = document.createElement('style');
     style.textContent = `
@@ -698,9 +775,19 @@
       .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.part{border:1px solid #202c23;background:#0b120d;border-radius:8px;padding:8px}.part span{display:block;font-size:10px;text-transform:capitalize;color:#95a198;margin-bottom:6px}.part-line{display:flex;align-items:center;gap:7px}.part-line input{width:36px;height:24px}.part-line code{font-size:9px;color:#657268}
       .cape-preview{height:110px;margin-top:8px;border:1px solid #202c23;border-radius:8px;background:#070b08;display:grid;place-items:center;overflow:hidden}.cape-preview img{max-width:100%;max-height:100%;object-fit:contain}
       .hint{margin-top:7px;color:#66736a;font-size:9px;line-height:1.55}.status{margin-top:10px;padding:9px 10px;border:1px solid #202c23;border-radius:8px;background:#0a100c;color:#839087;font-size:10px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#d2a33a;margin-right:7px}.dot.good{background:#69ff87}
+      .launcher{position:fixed;right:14px;bottom:14px;width:42px;height:42px;border:1px solid #315c3b;border-radius:10px;background:#0a110c;color:#69ff87;font-size:11px;font-weight:900;letter-spacing:.04em;cursor:pointer;pointer-events:auto;box-shadow:0 8px 25px rgba(0,0,0,.4)}
+      .launcher:hover{background:#102117;border-color:#4a8d59;color:#fff}
       @media(max-width:600px){.panel{right:10px;left:10px;top:10px;width:auto;max-height:calc(100vh - 20px)}}
     `;
     shadow.appendChild(style);
+
+    const launcher = make('button', {
+      className: 'launcher',
+      type: 'button',
+      title: 'Open Ron Bloxd Visual Client'
+    }, 'RON');
+    launcher.onclick = openPanel;
+    shadow.appendChild(launcher);
 
     panel = make('div', { className: 'panel', hidden: true });
     shadow.appendChild(panel);
@@ -909,14 +996,33 @@
   }
 
   function installKeys() {
-    win.addEventListener('keydown', event => {
-      if (event.code === HOTKEY && event.shiftKey && !event.ctrlKey && !event.altKey && !['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)) {
+    if (win.__RON_BLOXD_VISUAL_KEYS__) return;
+    win.__RON_BLOXD_VISUAL_KEYS__ = true;
+
+    const handler = event => {
+      const tag = event.target?.tagName;
+      const inField = ['INPUT','TEXTAREA','SELECT'].includes(tag) || event.target?.isContentEditable;
+
+      if ((event.code === HOTKEY || String(event.key || '').toLowerCase() === 'i') &&
+          event.shiftKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !inField) {
         event.preventDefault();
-        event.stopPropagation();
-        panel.hidden ? openPanel() : (panel.hidden = true);
+        event.stopImmediatePropagation();
+        if (!panel) buildUI();
+        if (panel.hidden) openPanel();
+        else panel.hidden = true;
+        return;
       }
-      if (event.code === 'Escape' && panel && !panel.hidden) panel.hidden = true;
-    }, true);
+
+      if (event.code === 'Escape' && panel && !panel.hidden && !inField) {
+        panel.hidden = true;
+      }
+    };
+
+    document.addEventListener('keydown', handler, true);
+    win.addEventListener('keydown', handler, true);
   }
 
   if (typeof GM_registerMenuCommand === 'function') {
@@ -926,25 +1032,25 @@
 
   function startClient() {
     if (!document.documentElement) {
-      setTimeout(startClient, 50);
+      setTimeout(startClient, 25);
       return;
     }
+
     buildUI();
     installKeys();
+
+    setTimeout(() => applyVisuals(true), 250);
     setTimeout(() => applyVisuals(true), 1000);
+    setTimeout(() => applyVisuals(true), 2500);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startClient, { once: true });
-  } else {
-    startClient();
-  }
+  startClient();
 
   win.addEventListener('load', () => applyVisuals(true), { once: true });
 
   const interval = setInterval(() => {
     try { applyVisuals(); } catch {}
-  }, 700);
+  }, 500);
 
   win.addEventListener('beforeunload', () => {
     clearInterval(interval);

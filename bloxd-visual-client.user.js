@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
 // @match        https://*.bloxd.io/*
-// @run-at       document-end
-// @grant        unsafeWindow
-// @grant        GM_registerMenuCommand
-// @inject-into  page
+// @run-at       document-start
+// @grant        none
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js
 // @downloadURL   https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js
@@ -18,9 +16,54 @@
 (() => {
   'use strict';
 
-  const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+  const win = window;
   if (win.__RON_BLOXD_VISUAL_CLIENT__) return;
   win.__RON_BLOXD_VISUAL_CLIENT__ = true;
+
+  console.info('[Ron | Bloxd Visual Client] v1.3.0 loaded on ' + location.hostname);
+
+  let capturedCallHook = false;
+  let originalCallDescriptor = null;
+
+  function installNoaCaptureHook() {
+    if (capturedCallHook || win.__RON_BLOXD_NOA__) return;
+
+    try {
+      originalCallDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, 'call');
+      const originalCall = Function.prototype.call;
+      let captured = false;
+
+      Object.defineProperty(Function.prototype, 'call', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function(thisArg, ...args) {
+          if (!captured) {
+            const candidate = args[0];
+            if (candidate && candidate.entities && candidate.bloxd) {
+              captured = true;
+              capturedCallHook = true;
+              win.__RON_BLOXD_NOA__ = candidate;
+              console.info('[Ron | Bloxd Visual Client] noa captured');
+              try {
+                Object.defineProperty(Function.prototype, 'call', originalCallDescriptor || {
+                  configurable: true,
+                  writable: true,
+                  value: originalCall
+                });
+              } catch {}
+            }
+          }
+
+          return originalCall.apply(this, [thisArg, ...args]);
+        }
+      });
+    } catch (error) {
+      console.warn('[Ron | Bloxd Visual Client] noa capture hook failed', error);
+    }
+  }
+
+  installNoaCaptureHook();
 
   const KEY = 'ron_bloxd_visual_client_v1';
   const HOTKEY = 'KeyI';
@@ -140,6 +183,8 @@
   let statusNode = null;
   let hooked = false;
   let lastHookTry = 0;
+  let lastDiag = '';
+  let lastThinMeshCount = -1;
 
   function safeClone(value) {
     try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
@@ -246,6 +291,12 @@
 
   function findNoa() {
     if (noa?.entities) return noa;
+    if (win.__RON_BLOXD_NOA__?.entities) {
+      noa = win.__RON_BLOXD_NOA__;
+      bloxd = noa.bloxd || null;
+      console.info('[Ron | Bloxd Visual Client] using captured noa');
+      return noa;
+    }
 
     try {
       const props = findModule('nonBlocksClient:');
@@ -253,14 +304,16 @@
 
       const candidates = Object.values(props);
       const bloxdPropsCandidate = candidates.find(p =>
-        p && typeof p === 'object'
-      );
+        p && typeof p === 'object' && Object.values(p).some(v => v?.entities && v?.bloxd)
+      ) || candidates.find(p => p && typeof p === 'object');
 
       if (!bloxdPropsCandidate) return null;
 
       bloxdProps = bloxdPropsCandidate;
 
       const candidateNoa = Object.values(bloxdPropsCandidate).find(p =>
+        p && typeof p === 'object' && p.entities && p.bloxd
+      ) || Object.values(bloxdPropsCandidate).find(p =>
         p && typeof p === 'object' && p.entities
       );
 
@@ -277,7 +330,15 @@
   function findRendering(noaObj) {
     try {
       const values = Object.values(noaObj || {});
-      return values[12] || values.find(v => v && typeof v === 'object' && v.thinMeshes) || null;
+      const indexed = values[12];
+      if (indexed && typeof indexed === 'object') {
+        const thin = Object.values(indexed).find(v => v?.thinMeshes);
+        if (thin) return indexed;
+      }
+      return values.find(v =>
+        v && typeof v === 'object' &&
+        (v.thinMeshes || Object.values(v).some(x => x?.thinMeshes))
+      ) || null;
     } catch {
       return null;
     }
@@ -342,20 +403,36 @@
     return typeof value.name === 'string' && ('material' in value || 'position' in value);
   }
 
+  function getThinMeshes() {
+    const direct = rendering?.thinMeshes;
+    if (Array.isArray(direct)) return direct;
+
+    try {
+      const found = Object.values(rendering || {}).find(v => Array.isArray(v?.thinMeshes));
+      return found?.thinMeshes || [];
+    } catch {
+      return [];
+    }
+  }
+
   function refreshLocalMeshes() {
     localMeshes = [];
 
-    const thinMeshes = rendering?.thinMeshes;
-    if (!Array.isArray(thinMeshes)) return;
-
+    const thinMeshes = getThinMeshes();
     for (const entry of thinMeshes) {
       const mesh =
         entry?.meshVariations?.__DEFAULT__?.mesh ||
         entry?.meshVariations?.default?.mesh ||
-        entry?.mesh;
+        entry?.mesh ||
+        entry?.defaultMesh;
 
       if (!isMesh(mesh)) continue;
       if (!localMeshes.includes(mesh)) localMeshes.push(mesh);
+    }
+
+    if (thinMeshes.length !== lastThinMeshCount) {
+      lastThinMeshCount = thinMeshes.length;
+      console.info('[Ron | Bloxd Visual Client] thinMeshes:', thinMeshes.length);
     }
   }
 
@@ -651,6 +728,14 @@
       }
 
       hooked = !!noa?.entities;
+
+      if (hooked && !lastDiag) {
+        console.info('[Ron | Bloxd Visual Client] renderer hook active');
+        lastDiag = 'hooked';
+      } else if (!hooked && lastDiag !== 'waiting') {
+        console.info('[Ron | Bloxd Visual Client] waiting for Bloxd game runtime');
+        lastDiag = 'waiting';
+      }
 
       if (noa) {
         bloxd = noa.bloxd || bloxd;
@@ -1017,10 +1102,7 @@
     win.addEventListener('keydown', handler, true);
   }
 
-  if (typeof GM_registerMenuCommand === 'function') {
-    GM_registerMenuCommand('Open Bloxd Visual Client', openPanel);
-    GM_registerMenuCommand('Reset Bloxd Visuals', resetAll);
-  }
+
 
   function startClient() {
     if (!document.documentElement) {
@@ -1030,6 +1112,7 @@
 
     buildUI();
     installKeys();
+    console.info('[Ron | Bloxd Visual Client] UI installed - press Shift+I or click RON');
 
     setTimeout(() => applyVisuals(true), 250);
     setTimeout(() => applyVisuals(true), 1000);
@@ -1037,6 +1120,14 @@
   }
 
   startClient();
+
+  const captureRetry = setInterval(() => {
+    try {
+      installNoaCaptureHook();
+      if (!noa?.entities) applyVisuals();
+      if (noa?.entities && rendering) clearInterval(captureRetry);
+    } catch {}
+  }, 100);
 
   win.addEventListener('load', () => applyVisuals(true), { once: true });
 

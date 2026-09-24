@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      9.0.0
-// @description  All-site game ad cleaner with frame-aware network hooks, ad script suppression and cosmetic cleanup.
+// @version      9.1.0
+// @description  Userscript-only game ad cleaner with safe site-specific network hooks and cosmetic cleanup.
 // @match        http*://*/*
 // @run-at       document-start
 // @grant        none
@@ -19,8 +19,8 @@
     const d = document;
     const hostname = location.hostname.toLowerCase();
 
-    if (w.__RON_GAME_AD_CLEANER_V9__) return;
-    w.__RON_GAME_AD_CLEANER_V9__ = true;
+    if (w.__RON_GAME_AD_CLEANER_V91__) return;
+    w.__RON_GAME_AD_CLEANER_V91__ = true;
 
     const isCrazyRuntime =
         hostname === 'games.crazygames.com' ||
@@ -34,45 +34,36 @@
         bloxd: hostname === 'bloxd.io' || hostname === 'www.bloxd.io' || hostname.endsWith('.bloxd.io')
     };
 
-    const supportedGameSite =
-        site.buildnow || site.crazygames || site.oneVOne || site.reloaded || site.bloxd;
+    const supportedSite = Object.values(site).some(Boolean);
 
-    // Ad systems/providers seen in the supported gaming stack and common web ad delivery.
+    // Only use a network hook when the request target is a verified ad-delivery host.
+    // This is deliberately strict: legitimate game assets often contain words such as
+    // "ad", "advert", or "slot" in filenames/paths.
     const adHosts = [
+        'api.adinplay.com',
         'adinplay.com',
-        'a-mo.net',
+        'cpmstar.com',
+        'doubleclick.net',
+        'googlesyndication.com',
+        'googleadservices.com',
+        'googletagservices.com',
+        'imasdk.googleapis.com',
         'adnxs.com',
         'adsrvr.org',
         'adsafeprotected.com',
         'amazon-adsystem.com',
-        'casalemedia.com',
-        'cpmstar.com',
         'criteo.com',
-        'doubleclick.net',
-        'googleadservices.com',
-        'googlesyndication.com',
-        'googletagservices.com',
-        'indexww.com',
-        'imasdk.googleapis.com',
+        'pubmatic.com',
+        'rubiconproject.com',
         'openx.net',
         'onetag-sys.com',
-        'pubmatic.com',
-        'rubiconproject.com'
-    ].map(x => x.toLowerCase());
-
-    const adPath = [
-        /(^|[\\/_.-])(ads?|advert|advertisement|advertising)([\\/_.?&=-]|$)/i,
-        /(^|[\\/])adserver([\\/_.?&=-]|$)/i,
-        /(^|[\\/])adservice([\\/_.?&=-]|$)/i,
-        /(^|[\\/])adtag([\\/_.?&=-]|$)/i,
-        /(^|[\\/])adcall([\\/_.?&=-]|$)/i,
-        /(^|[\\/])prebid([\\/_.?&=-]|$)/i,
-        /(^|[\\/])cpmstar(?:[\\/_.?-]|$)/i,
-        /(^|[\\/])aiptag(?:[\\/_.?-]|$)/i
+        'indexww.com',
+        'casalemedia.com'
     ];
 
-    const adQuery = [
-        /(^|[?&])(adunit|adunitid|adslot|ad_slot|adtag|adtype|advert|advertisement|prebid)(=|&|$)/i
+    const exactFirstPartyAdURLs = [
+        /^https?:\/\/1v1\.lol\/js\/cpmstar(?:\.min)?\.js(?:$|[?#])/i,
+        /^https?:\/\/(?:www\.)?1v1lolreloaded\.com\/.*cpmstar(?:\.min)?\.js(?:$|[?#])/i
     ];
 
     function toURL(value) {
@@ -85,159 +76,98 @@
         return null;
     }
 
-    function hostMatchesAd(host) {
-        const h = String(host || '').toLowerCase().replace(/^www\\./, '');
+    function isKnownAdHost(host) {
+        const h = String(host || '').toLowerCase().replace(/^www\./, '');
         return adHosts.some(base => h === base || h.endsWith('.' + base));
     }
 
-    function isAdURL(value) {
+    function isNetworkAd(value) {
         const url = toURL(value);
         if (!url || !/^https?:$/i.test(url.protocol)) return false;
-
-        if (hostMatchesAd(url.hostname)) return true;
-
-        const pathAndQuery = url.pathname + url.search;
-        if (adPath.some(re => re.test(pathAndQuery))) {
-            // Keep generic blocking limited to game pages/known ad frames.
-            return supportedGameSite || isCrazyRuntime || hostMatchesAd(url.hostname);
-        }
-
-        return adQuery.some(re => re.test(url.search));
+        if (isKnownAdHost(url.hostname)) return true;
+        return exactFirstPartyAdURLs.some(re => re.test(url.href));
     }
 
-    function blockedResourceElement(el) {
-        if (!(el instanceof Element)) return false;
+    // BuildNow gets NO request interception. This is the important regression fix:
+    // the standalone game must be allowed to load all of its Unity assets/API files.
+    const allowNetworkHooks =
+        !site.buildnow &&
+        (supportedSite || isCrazyRuntime);
 
-        const tag = el.tagName;
-        if (!['SCRIPT','IFRAME','IMG','OBJECT','EMBED','VIDEO','SOURCE','LINK'].includes(tag)) return false;
-
-        const src =
-            el.getAttribute('src') ||
-            el.getAttribute('data') ||
-            el.getAttribute('href') ||
-            el.getAttribute('data-src') ||
-            el.getAttribute('data-url');
-
-        return isAdURL(src);
-    }
-
-    // Network-layer JS hooks. These catch JS-initiated requests, not parser-level requests.
     function installRequestHooks() {
+        if (!allowNetworkHooks) return;
+
         try {
             const originalFetch = w.fetch;
-            if (typeof originalFetch === 'function' && !originalFetch.__ronV9) {
+            if (typeof originalFetch === 'function' && !originalFetch.__ron91) {
                 const wrappedFetch = function(input, init) {
-                    if (isAdURL(input)) {
+                    if (isNetworkAd(input)) {
                         return Promise.reject(new TypeError('[Ron] blocked ad fetch'));
                     }
                     return originalFetch.call(this, input, init);
                 };
-                Object.defineProperty(wrappedFetch, '__ronV9', { value: true });
+                Object.defineProperty(wrappedFetch, '__ron91', { value: true });
                 w.fetch = wrappedFetch;
             }
         } catch {}
 
         try {
             const XHR = w.XMLHttpRequest;
-            if (XHR && !XHR.prototype.__ronV9) {
-                const open = XHR.prototype.open;
-                const send = XHR.prototype.send;
+            if (XHR && !XHR.prototype.__ron91) {
+                const originalOpen = XHR.prototype.open;
+                const originalSend = XHR.prototype.send;
 
                 XHR.prototype.open = function(method, url) {
-                    this.__ronURL = String(url || '');
-                    return open.apply(this, arguments);
+                    this.__ronRonURL = String(url || '');
+                    return originalOpen.apply(this, arguments);
                 };
 
                 XHR.prototype.send = function() {
-                    if (isAdURL(this.__ronURL)) {
+                    if (isNetworkAd(this.__ronRonURL)) {
                         try { this.abort(); } catch {}
                         return;
                     }
-                    return send.apply(this, arguments);
+                    return originalSend.apply(this, arguments);
                 };
 
-                Object.defineProperty(XHR.prototype, '__ronV9', { value: true });
+                Object.defineProperty(XHR.prototype, '__ron91', { value: true });
             }
         } catch {}
 
         try {
-            if (navigator.sendBeacon && !navigator.sendBeacon.__ronV9) {
-                const beacon = navigator.sendBeacon.bind(navigator);
-                const wrapped = function(url, data) {
-                    if (isAdURL(url)) return false;
-                    return beacon(url, data);
+            if (navigator.sendBeacon && !navigator.sendBeacon.__ron91) {
+                const originalBeacon = navigator.sendBeacon.bind(navigator);
+                const wrappedBeacon = function(url, data) {
+                    if (isNetworkAd(url)) return false;
+                    return originalBeacon(url, data);
                 };
-                Object.defineProperty(wrapped, '__ronV9', { value: true });
-                navigator.sendBeacon = wrapped;
+                Object.defineProperty(wrappedBeacon, '__ron91', { value: true });
+                navigator.sendBeacon = wrappedBeacon;
             }
         } catch {}
     }
 
     installRequestHooks();
 
-    // Suppress dynamically inserted ad resources before they are attached to the page.
-    function installInsertionHooks() {
-        try {
-            if (Node.prototype.appendChild.__ronV9) return;
-
-            const appendChild = Node.prototype.appendChild;
-            const insertBefore = Node.prototype.insertBefore;
-            const replaceChild = Node.prototype.replaceChild;
-
-            const guard = node => {
-                if (blockedResourceElement(node)) {
-                    try {
-                        node.removeAttribute('src');
-                        node.removeAttribute('href');
-                        node.removeAttribute('data');
-                    } catch {}
-                    return true;
-                }
-                return false;
-            };
-
-            Node.prototype.appendChild = function(node) {
-                if (guard(node)) return node;
-                return appendChild.call(this, node);
-            };
-
-            Node.prototype.insertBefore = function(node, ref) {
-                if (guard(node)) return node;
-                return insertBefore.call(this, node, ref);
-            };
-
-            Node.prototype.replaceChild = function(node, old) {
-                if (guard(node)) return old;
-                return replaceChild.call(this, node, old);
-            };
-
-            Object.defineProperty(Node.prototype.appendChild, '__ronV9', { value: true });
-        } catch {}
-    }
-
-    installInsertionHooks();
-
-    // CrazyGames runtime pages are deliberately DOM-safe: don't touch Unity/game DOM.
-    // The network + insertion hooks are still active in the nested frame.
+    // Never mutate the DOM inside CrazyGames runtime hosts.
+    // That protects Unity/WebGL games while known ad-network requests are filtered.
     if (isCrazyRuntime) {
-        console.info('[Ron | Game Ad Cleaner] v9.0.0 network mode on ' + hostname);
+        console.info('[Ron | Game Ad Cleaner] v9.1.0 network-only mode on ' + hostname);
         return;
     }
+
+    console.info('[Ron | Game Ad Cleaner] v9.1.0 active on ' + hostname);
 
     const genericSelectors = [
         'ins.adsbygoogle',
         '.adsbygoogle',
         'amp-ad',
-        'amp-embed[type="taboola"]',
         '[data-ad-slot]',
         '[data-ad-client]',
         '[data-ad-unit]',
         '[data-ad-format]',
         '[data-advertisement]',
         '[data-ad-container]',
-        '[data-adname]',
-        '[data-adunit-path]',
-        '[data-ad-placeholder]',
         '[data-testid="ad"]',
         '[data-testid="advertisement"]',
         '[aria-label="advertisement" i]',
@@ -284,38 +214,49 @@
 
     const selectors = site.bloxd ? bloxdSelectors : genericSelectors;
     const selector = selectors.join(',');
-    const processed = new WeakSet();
+    const touched = new WeakSet();
 
     function gameProtected(el) {
         if (!(el instanceof Element)) return true;
 
-        if (el.matches('canvas,video,audio,[data-game],[data-game-container],[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i],[id*="game" i],[class*="game" i]')) {
+        if (el.matches(
+            'canvas,video,audio,[data-game],[data-game-container],' +
+            '[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i]'
+        )) {
             return true;
         }
 
-        return Boolean(el.querySelector('canvas,[data-game],[data-game-container],[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i]'));
+        return Boolean(el.querySelector(
+            'canvas,[data-game],[data-game-container],[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i]'
+        ));
     }
 
     function looksLikeAd(el) {
         if (!(el instanceof Element)) return false;
         if (el.matches(selector)) return true;
-        if (site.bloxd) return false;
 
+        // Do not use broad "contains ad" matching on BuildNow.
+        // Only strong semantic names are accepted for generic supported portals.
         const id = el.id || '';
         const cls = typeof el.className === 'string' ? el.className : '';
         const role = el.getAttribute('role') || '';
         const aria = el.getAttribute('aria-label') || '';
 
-        if (/(^|[-_:.])(ad|ads|advert|advertisement|advertising|sponsor|sponsored)([-_:.]|$)/i.test(id)) return true;
-        if (/(^|[-_:.])(ad|ads|advert|advertisement|advertising|sponsor|sponsored)([-_:.]|$)/i.test(cls)) return true;
-        if (/advertisement|sponsored/i.test(role + ' ' + aria)) return true;
+        const strong =
+            /^(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
+
+        if (strong.test(id) || strong.test(cls)) return true;
+        if (/^(?:advertisement|sponsored)$/i.test(role)) return true;
+        if (/^(?:advertisement|advertisements|sponsored)$/i.test(aria)) return true;
 
         return false;
     }
 
     function hideAd(el) {
-        if (!(el instanceof Element) || processed.has(el) || !looksLikeAd(el) || gameProtected(el)) return;
-        processed.add(el);
+        if (!(el instanceof Element) || touched.has(el)) return;
+        if (!looksLikeAd(el) || gameProtected(el)) return;
+
+        touched.add(el);
         el.style.setProperty('display', 'none', 'important');
         el.style.setProperty('visibility', 'hidden', 'important');
         el.style.setProperty('pointer-events', 'none', 'important');
@@ -324,51 +265,57 @@
         el.style.setProperty('overflow', 'hidden', 'important');
     }
 
-    function scan(root) {
-        if (!root || !root.querySelectorAll) return;
+    function scan(root = d) {
+        if (!root?.querySelectorAll) return;
 
         if (root instanceof Element) hideAd(root);
 
-        for (const el of root.querySelectorAll(selector)) {
-            hideAd(el);
-        }
+        for (const el of root.querySelectorAll(selector)) hideAd(el);
 
-        // Only inspect semantic ad attributes on supported game portals.
-        if (supportedGameSite) {
-            for (const el of root.querySelectorAll('[id],[class],[role],[aria-label]')) {
-                hideAd(el);
-            }
+        // BuildNow gets the same safe selectors, but NO broad [id],[class] scan.
+        if (!site.buildnow) {
+            for (const el of root.querySelectorAll('[role],[aria-label]')) hideAd(el);
         }
     }
 
     function installCSS() {
-        if (d.getElementById('ron-game-ad-cleaner-v9-style')) return;
+        if (d.getElementById('ron-game-ad-cleaner-v91-style')) return;
+
         const style = d.createElement('style');
-        style.id = 'ron-game-ad-cleaner-v9-style';
-        style.textContent = selectors.join(',\\n') + ' { display:none !important; visibility:hidden !important; pointer-events:none !important; }';
+        style.id = 'ron-game-ad-cleaner-v91-style';
+        style.textContent =
+            selectors.join(',\n') +
+            ' { display:none !important; visibility:hidden !important; pointer-events:none !important; }';
+
         (d.head || d.documentElement)?.appendChild(style);
     }
 
     function patchCrazySDK() {
-        if (!site.crazygames || w.__RON_CRAZY_SDK_V9__) return;
+        if (!site.crazygames || w.__RON_CRAZY_SDK_V91__) return;
+
         try {
             const ad = w.CrazyGames?.SDK?.ad;
             if (!ad || typeof ad.requestAd !== 'function') return;
 
             const original = ad.requestAd;
+
             ad.requestAd = function(type, callbacks = {}) {
                 if (type !== 'midgame') return original.apply(this, arguments);
-                callbacks?.adStarted?.();
-                queueMicrotask(() => callbacks?.adFinished?.());
+
+                if (typeof callbacks.adStarted === 'function') callbacks.adStarted();
+
+                queueMicrotask(() => {
+                    if (typeof callbacks.adFinished === 'function') callbacks.adFinished();
+                });
             };
 
-            w.__RON_CRAZY_SDK_V9__ = true;
+            w.__RON_CRAZY_SDK_V91__ = true;
         } catch {}
     }
 
     function boot() {
         installCSS();
-        scan(d);
+        scan();
         patchCrazySDK();
 
         if (!d.documentElement) return;
@@ -378,16 +325,7 @@
                 if (mutation.type === 'attributes') hideAd(mutation.target);
 
                 for (const node of mutation.addedNodes) {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        if (blockedResourceElement(node)) {
-                            try {
-                                node.removeAttribute('src');
-                                node.removeAttribute('href');
-                                node.removeAttribute('data');
-                            } catch {}
-                        }
-                        scan(node);
-                    }
+                    if (node.nodeType === Node.ELEMENT_NODE) scan(node);
                 }
             }
 
@@ -398,23 +336,35 @@
             childList: true,
             subtree: true,
             attributes: true,
-            attributeFilter: ['id','class','style','src','href','data','data-ad-slot','data-ad-client','aria-label','role']
+            attributeFilter: [
+                'id',
+                'class',
+                'style',
+                'src',
+                'href',
+                'data',
+                'data-ad-slot',
+                'data-ad-client',
+                'aria-label',
+                'role'
+            ]
         });
     }
 
-    if (d.documentElement) boot();
-    else {
+    if (d.documentElement) {
+        boot();
+    } else {
         const observer = new MutationObserver(() => {
             if (!d.documentElement) return;
             observer.disconnect();
             boot();
         });
+
         observer.observe(d, { childList: true, subtree: true });
     }
 
-    // Re-scan SPAs and ad slots which are inserted after route changes.
     setInterval(() => {
-        scan(d);
+        scan();
         patchCrazySDK();
-    }, 2000);
+    }, 2500);
 })();

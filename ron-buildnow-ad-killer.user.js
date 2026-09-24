@@ -11,6 +11,9 @@
 // @match        https://www.1v1.lol/*
 // @match        https://1v1lolreloaded.com/*
 // @match        https://www.1v1lolreloaded.com/*
+// @match        https://bloxd.io/*
+// @match        https://www.bloxd.io/*
+// @match        https://*.bloxd.io/*
 // @run-at       document-start
 // @grant        none
 // @inject-into  page

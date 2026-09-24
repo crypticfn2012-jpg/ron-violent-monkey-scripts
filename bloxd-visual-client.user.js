@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
@@ -204,83 +204,39 @@
 
     try {
       const descriptors = Object.getOwnPropertyDescriptors(win);
-      let key = Object.keys(descriptors).find(k => {
-        const setter = descriptors[k]?.set;
-        return setter && Function.prototype.toString.call(setter).includes('++');
-      });
+      const wpKey = Object.keys(descriptors).find(k =>
+        descriptors[k]?.set &&
+        Function.prototype.toString.call(descriptors[k].set).includes('++')
+      );
 
-      if (!key) {
-        key = Object.keys(win).find(k => {
-          try {
-            const value = win[k];
-            return Array.isArray(value) && typeof value.push === 'function' && /webpack|chunk/i.test(k);
-          } catch {
-            return false;
-          }
-        });
-      }
+      if (!wpKey || !win[wpKey] || typeof win[wpKey].push !== 'function') return null;
 
-      if (!key) return null;
+      win[wpKey] = win[wpKey];
 
-      let chunkArray = win[key];
-      try { win[key] = win[key]; } catch {}
-      chunkArray = win[key] || chunkArray;
-      if (!chunkArray || typeof chunkArray.push !== 'function') return null;
+      const randId = Math.floor(Math.random() * 9999999 + 1);
+      win[wpKey].push([[randId], {}, req => {
+        webpackRequire = req;
+      }]);
 
-      let req = null;
-      const id = Math.floor(Math.random() * 9000000) + 1000000;
-      chunkArray.push([[id], {}, runtime => { req = runtime; }]);
-
-      if (req?.m) webpackRequire = req;
-      return req;
+      return webpackRequire;
     } catch {
       return null;
     }
   }
 
-  function findNoa() {
-    if (noa?.entities) return noa;
-
+  function findModule(text) {
     const req = getWebpackRequire();
     if (!req?.m) return null;
 
     try {
-      const moduleIds = Object.keys(req.m);
-
-      for (const id of moduleIds) {
-        const factory = req.m[id];
-        if (typeof factory !== 'function') continue;
-
-        const source = Function.prototype.toString.call(factory);
-        if (!source.includes('nonBlocksClient:')) continue;
-
-        let exported;
-        try { exported = req(id); } catch { continue; }
-
-        const exportedValues = [];
-        if (exported && typeof exported === 'object') {
-          exportedValues.push(exported);
-          exportedValues.push(...Object.values(exported));
-        }
-
-        for (const candidate of exportedValues) {
-          if (!candidate || typeof candidate !== 'object') continue;
-
-          if (candidate.entities) {
-            bloxdProps = candidate;
-            bloxd = candidate.bloxd || null;
-            return candidate;
-          }
-
-          const nested = Object.values(candidate).find(value =>
-            value && typeof value === 'object' && value.entities
-          );
-
-          if (nested) {
-            bloxdProps = candidate;
-            bloxd = nested.bloxd || null;
-            return nested;
-          }
+      for (const id in req.m) {
+        const moduleFactory = req.m[id];
+        if (
+          moduleFactory &&
+          typeof moduleFactory.toString === 'function' &&
+          moduleFactory.toString().includes(text)
+        ) {
+          return req(id);
         }
       }
     } catch {}
@@ -288,12 +244,40 @@
     return null;
   }
 
+  function findNoa() {
+    if (noa?.entities) return noa;
+
+    try {
+      const props = findModule('nonBlocksClient:');
+      if (!props) return null;
+
+      const candidates = Object.values(props);
+      const bloxdPropsCandidate = candidates.find(p =>
+        p && typeof p === 'object'
+      );
+
+      if (!bloxdPropsCandidate) return null;
+
+      bloxdProps = bloxdPropsCandidate;
+
+      const candidateNoa = Object.values(bloxdPropsCandidate).find(p =>
+        p && typeof p === 'object' && p.entities
+      );
+
+      if (!candidateNoa) return null;
+
+      noa = candidateNoa;
+      bloxd = candidateNoa.bloxd || bloxdPropsCandidate.bloxd || null;
+      return noa;
+    } catch {
+      return null;
+    }
+  }
+
   function findRendering(noaObj) {
     try {
-      if (noaObj?.rendering) return noaObj.rendering;
-      return Object.values(noaObj || {}).find(v =>
-        v && typeof v === 'object' && Array.isArray(v.thinMeshes)
-      ) || null;
+      const values = Object.values(noaObj || {});
+      return values[12] || values.find(v => v && typeof v === 'object' && v.thinMeshes) || null;
     } catch {
       return null;
     }
@@ -361,22 +345,17 @@
   function refreshLocalMeshes() {
     localMeshes = [];
 
-    const thinMeshes = Array.isArray(rendering?.thinMeshes) ? rendering.thinMeshes : [];
+    const thinMeshes = rendering?.thinMeshes;
+    if (!Array.isArray(thinMeshes)) return;
+
     for (const entry of thinMeshes) {
-      const variations = entry?.meshVariations && typeof entry.meshVariations === 'object'
-        ? Object.values(entry.meshVariations)
-        : [];
+      const mesh =
+        entry?.meshVariations?.__DEFAULT__?.mesh ||
+        entry?.meshVariations?.default?.mesh ||
+        entry?.mesh;
 
-      const candidates = [];
-      if (entry?.mesh) candidates.push(entry.mesh);
-      for (const variation of variations) {
-        if (variation?.mesh) candidates.push(variation.mesh);
-      }
-
-      for (const mesh of candidates) {
-        if (!isMesh(mesh) || localMeshes.includes(mesh)) continue;
-        localMeshes.push(mesh);
-      }
+      if (!isMesh(mesh)) continue;
+      if (!localMeshes.includes(mesh)) localMeshes.push(mesh);
     }
   }
 
@@ -411,16 +390,29 @@
 
   function tintMaterial(material, hex) {
     if (!material || !validHex(hex)) return;
-    const color = colorValue(hex);
-    const names = ['diffuseColor', 'albedoColor', 'baseColor', 'emissiveColor'];
-    for (const key of names) {
+
+    const c = colorValue(hex);
+    const babylon = win.BABYLON;
+    const color3 = babylon?.Color3
+      ? new babylon.Color3(c.r, c.g, c.b)
+      : null;
+
+    for (const key of ['diffuseColor', 'albedoColor', 'baseColor']) {
       if (!(key in material)) continue;
       try {
-        if (material[key] && typeof material[key] === 'object') setColorObject(material[key], hex);
+        if (color3) {
+          material[key] = color3.clone ? color3.clone() : color3;
+        } else if (material[key] && typeof material[key] === 'object') {
+          setColorObject(material[key], hex);
+        }
       } catch {}
     }
-    try { material.diffuseColor = color; } catch {}
-    try { material.albedoColor = color; } catch {}
+
+    try {
+      if ('emissiveColor' in material && material.emissiveColor && typeof material.emissiveColor === 'object') {
+        setColorObject(material.emissiveColor, hex);
+      }
+    } catch {}
   }
 
   function restoreMaterials() {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      6.1.1
+// @version      6.2.0
 // @description  Removes common ad surfaces and ad overlays from BuildNow.gg, 1v1.LOL, Bloxd.io and supported game portals without touching game canvases or game network requests.
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
@@ -39,7 +39,7 @@
 
     if (!Object.values(hosts).some(Boolean)) return;
 
-    const selectorList = [
+    const genericSelectorList = [
         'ins.adsbygoogle',
         '.adsbygoogle',
         '[data-ad-slot]',
@@ -79,6 +79,18 @@
         '[id*="adinplay" i]'
     ];
 
+    const bloxdSelectorList = [
+        '[id^="bloxd-io_"][id*="leaderboard" i]',
+        '[id^="bloxd-io_"][id*="skyscraper" i]',
+        '[id^="bloxd-io_"][id*="banner" i]',
+        '[id^="bloxd-io_"][id*="rectangle" i]',
+        '[id^="bloxd-io_"][id*="interstitial" i]',
+        '[class*="aip-ad" i]',
+        '[class*="adinplay" i]',
+        '[id*="adinplay" i]'
+    ];
+
+    const selectorList = hosts.bloxd ? bloxdSelectorList : genericSelectorList;
     const selector = selectorList.join(',');
     const adName = /^(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
     const adWord = /(?:^|[-_:.])(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
@@ -111,6 +123,10 @@
 
     function looksLikeAd(element) {
         if (!isElement(element)) return false;
+
+        if (hosts.bloxd) {
+            return element.matches(selector);
+        }
 
         if (element.matches(selector)) return true;
 
@@ -190,8 +206,9 @@
 
         const style = document.createElement('style');
         style.id = 'ron-game-ad-cleaner-style';
+        const styleSelectors = hosts.bloxd ? bloxdSelectorList : genericSelectorList;
         style.textContent = `
-            ins.adsbygoogle,
+            ${styleSelectors.join(',\n            ')}
             .adsbygoogle,
             [data-ad-slot],
             [data-ad-client],
@@ -209,15 +226,7 @@
             iframe[src*="adnxs.com"],
             iframe[src*="amazon-adsystem.com"],
             iframe[src*="adsafeprotected.com"],
-            [id^="bloxd-io_"][id*="leaderboard" i],
-            [id^="bloxd-io_"][id*="skyscraper" i],
-            [id^="bloxd-io_"][id*="banner" i],
-            [id^="bloxd-io_"][id*="rectangle" i],
-            [id^="bloxd-io_"][id*="interstitial" i],
-            [id^="bloxd-io_"][id*="ad" i],
-            [class*="aip-ad" i],
-            [class*="adinplay" i],
-            [id*="adinplay" i] {
+            {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;

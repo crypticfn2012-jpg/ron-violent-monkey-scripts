@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      7.0.0
-// @description  All-in-one game ad cleaner for BuildNow.gg, 1v1.LOL, CrazyGames and Bloxd.io with site-specific safety rules.
+// @version      7.1.0
+// @description  All-in-one game ad cleaner for supported game portals with isolated rules for each site.
 // @match        https://buildnow.gg/*
-// @match        https://*.buildnow.gg/*
 // @match        https://crazygames.com/*
 // @match        https://*.crazygames.com/*
+// @exclude      https://games.crazygames.com/*
+// @exclude      https://*.game-files.crazygames.com/*
 // @match        https://1v1.lol/*
 // @match        https://www.1v1.lol/*
 // @match        https://1v1lolreloaded.com/*
@@ -29,8 +30,14 @@
     window.__RON_GAME_AD_CLEANER__ = true;
 
     const hostname = location.hostname.toLowerCase();
+    const excludedGameRuntime =
+        hostname === 'games.crazygames.com' ||
+        hostname.endsWith('.game-files.crazygames.com');
+
+    if (excludedGameRuntime) return;
+
     const hosts = {
-        buildnow: hostname === 'buildnow.gg' || hostname.endsWith('.buildnow.gg'),
+        buildnow: hostname === 'buildnow.gg',
         crazygames: hostname === 'crazygames.com' || hostname.endsWith('.crazygames.com'),
         oneVOne: hostname === '1v1.lol' || hostname === 'www.1v1.lol',
         reloaded: hostname === '1v1lolreloaded.com' || hostname === 'www.1v1lolreloaded.com',
@@ -39,7 +46,7 @@
 
     if (!Object.values(hosts).some(Boolean)) return;
 
-    console.info('[Ron | Game Ad Cleaner] v7.0.0 active on ' + hostname + (hosts.bloxd ? ' (Bloxd isolated mode)' : ''));
+    console.info('[Ron | Game Ad Cleaner] v7.1.0 active on ' + hostname + (hosts.bloxd ? ' (Bloxd isolated mode)' : ''));
     const genericSelectorList = [
         'ins.adsbygoogle',
         '.adsbygoogle',
@@ -77,6 +84,11 @@
         '[id^="bloxd-io_"][id*="banner" i]',
         '[id^="bloxd-io_"][id*="rectangle" i]',
         '[id^="bloxd-io_"][id*="interstitial" i]',
+        '[id^="bloxd-io_"][id*="160x600" i]',
+        '[id^="bloxd-io_"][id*="300x600" i]',
+        '[id^="bloxd-io_"][id*="970x250" i]',
+        '[id^="bloxd-io_"][id*="728x90" i]',
+        '[id^="bloxd-io_"][id*="320x100" i]',
         '[id^="bloxd-io_"][id*="ad" i]',
         '[class*="aip-ad" i]',
         '[class*="adinplay" i]',

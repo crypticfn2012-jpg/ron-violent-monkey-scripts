@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      6.0.0
-// @description  Removes common ad surfaces and ad overlays from BuildNow.gg, 1v1.LOL and supported game portals without touching game canvases or game network requests.
+// @version      6.1.0
+// @description  Removes common ad surfaces and ad overlays from BuildNow.gg, 1v1.LOL, Bloxd.io and supported game portals without touching game canvases or game network requests.
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
 // @match        https://crazygames.com/*
@@ -11,6 +11,9 @@
 // @match        https://www.1v1.lol/*
 // @match        https://1v1lolreloaded.com/*
 // @match        https://www.1v1lolreloaded.com/*
+// @match        https://bloxd.io/*
+// @match        https://www.bloxd.io/*
+// @match        https://*.bloxd.io/*
 // @run-at       document-start
 // @grant        none
 // @inject-into  page
@@ -30,7 +33,8 @@
         buildnow: hostname === 'buildnow.gg' || hostname.endsWith('.buildnow.gg'),
         crazygames: hostname === 'crazygames.com' || hostname.endsWith('.crazygames.com'),
         oneVOne: hostname === '1v1.lol' || hostname === 'www.1v1.lol',
-        reloaded: hostname === '1v1lolreloaded.com' || hostname === 'www.1v1lolreloaded.com'
+        reloaded: hostname === '1v1lolreloaded.com' || hostname === 'www.1v1lolreloaded.com',
+        bloxd: hostname === 'bloxd.io' || hostname === 'www.bloxd.io' || hostname.endsWith('.bloxd.io')
     };
 
     if (!Object.values(hosts).some(Boolean)) return;
@@ -63,7 +67,16 @@
         'iframe[src*="googleadservices.com"]',
         'iframe[src*="adnxs.com"]',
         'iframe[src*="amazon-adsystem.com"]',
-        'iframe[src*="adsafeprotected.com"]'
+        'iframe[src*="adsafeprotected.com"]',
+        '[id^="bloxd-io_"][id*="leaderboard" i]',
+        '[id^="bloxd-io_"][id*="skyscraper" i]',
+        '[id^="bloxd-io_"][id*="banner" i]',
+        '[id^="bloxd-io_"][id*="rectangle" i]',
+        '[id^="bloxd-io_"][id*="interstitial" i]',
+        '[id^="bloxd-io_"][id*="ad" i]',
+        '[class*="aip-ad" i]',
+        '[class*="adinplay" i]',
+        '[id*="adinplay" i]'
     ];
 
     const selector = selectorList.join(',');
@@ -180,7 +193,16 @@
             iframe[src*="googleadservices.com"],
             iframe[src*="adnxs.com"],
             iframe[src*="amazon-adsystem.com"],
-            iframe[src*="adsafeprotected.com"] {
+            iframe[src*="adsafeprotected.com"],
+            [id^="bloxd-io_"][id*="leaderboard" i],
+            [id^="bloxd-io_"][id*="skyscraper" i],
+            [id^="bloxd-io_"][id*="banner" i],
+            [id^="bloxd-io_"][id*="rectangle" i],
+            [id^="bloxd-io_"][id*="interstitial" i],
+            [id^="bloxd-io_"][id*="ad" i],
+            [class*="aip-ad" i],
+            [class*="adinplay" i],
+            [id*="adinplay" i] {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;

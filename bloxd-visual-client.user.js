@@ -20,7 +20,7 @@
   if (win.__RON_BLOXD_VISUAL_CLIENT__) return;
   win.__RON_BLOXD_VISUAL_CLIENT__ = true;
 
-  console.info('[Ron | Bloxd Visual Client] v1.3.0 loaded on ' + location.hostname);
+  console.info('[Ron | Bloxd Visual Client] v1.4.0 loaded on ' + location.hostname);
 
 
   const KEY = 'ron_bloxd_visual_client_v1';
@@ -225,15 +225,15 @@
         return null;
       }
 
+      try {
+        win[webpackKey] = win[webpackKey];
+      } catch {}
+
       const chunkQueue = win[webpackKey];
       if (!chunkQueue || typeof chunkQueue.push !== 'function') {
         runtimeStage = 'webpack-queue-wait';
         return null;
       }
-
-      try {
-        win[webpackKey] = win[webpackKey];
-      } catch {}
 
       const randId = Math.floor(Math.random() * 9999999 + 1);
       chunkQueue.push([[randId], {}, req => {
@@ -1160,10 +1160,10 @@
 
   const captureRetry = setInterval(() => {
     try {
-if (!noa?.entities) applyVisuals();
-      if (noa?.entities && rendering) clearInterval(captureRetry);
+      if (!noa?.entities || !rendering || !localMeshes.length) applyVisuals();
+      if (noa?.entities && rendering && localMeshes.length) clearInterval(captureRetry);
     } catch {}
-  }, 100);
+  }, 250);
 
   win.addEventListener('load', () => applyVisuals(true), { once: true });
 

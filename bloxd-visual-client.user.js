@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.3.0
+// @version      1.4.0
 // @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
@@ -22,48 +22,6 @@
 
   console.info('[Ron | Bloxd Visual Client] v1.3.0 loaded on ' + location.hostname);
 
-  let capturedCallHook = false;
-  let originalCallDescriptor = null;
-
-  function installNoaCaptureHook() {
-    if (capturedCallHook || win.__RON_BLOXD_NOA__) return;
-
-    try {
-      originalCallDescriptor = Object.getOwnPropertyDescriptor(Function.prototype, 'call');
-      const originalCall = Function.prototype.call;
-      let captured = false;
-
-      Object.defineProperty(Function.prototype, 'call', {
-        configurable: true,
-        enumerable: false,
-        writable: true,
-        value: function(thisArg, ...args) {
-          if (!captured) {
-            const candidate = args[0];
-            if (candidate && candidate.entities && candidate.bloxd) {
-              captured = true;
-              capturedCallHook = true;
-              win.__RON_BLOXD_NOA__ = candidate;
-              console.info('[Ron | Bloxd Visual Client] noa captured');
-              try {
-                Object.defineProperty(Function.prototype, 'call', originalCallDescriptor || {
-                  configurable: true,
-                  writable: true,
-                  value: originalCall
-                });
-              } catch {}
-            }
-          }
-
-          return originalCall.apply(this, [thisArg, ...args]);
-        }
-      });
-    } catch (error) {
-      console.warn('[Ron | Bloxd Visual Client] noa capture hook failed', error);
-    }
-  }
-
-  installNoaCaptureHook();
 
   const KEY = 'ron_bloxd_visual_client_v1';
   const HOTKEY = 'KeyI';
@@ -185,6 +143,10 @@
   let lastHookTry = 0;
   let lastDiag = '';
   let lastThinMeshCount = -1;
+  let webpackKey = null;
+  let runtimeStage = 'waiting';
+  let runtimeError = '';
+  let lastLocalId = null;
 
   function safeClone(value) {
     try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
@@ -249,24 +211,45 @@
 
     try {
       const descriptors = Object.getOwnPropertyDescriptors(win);
-      const wpKey = Object.keys(descriptors).find(k =>
-        descriptors[k]?.set &&
-        Function.prototype.toString.call(descriptors[k].set).includes('++')
-      );
 
-      if (!wpKey || !win[wpKey] || typeof win[wpKey].push !== 'function') return null;
+      if (!webpackKey) {
+        webpackKey = Object.keys(descriptors).find(key => {
+          const setter = descriptors[key]?.set;
+          return typeof setter === 'function' &&
+            Function.prototype.toString.call(setter).includes('++');
+        });
+      }
 
-      win[wpKey] = win[wpKey];
+      if (!webpackKey) {
+        runtimeStage = 'webpack-key-wait';
+        return null;
+      }
+
+      const chunkQueue = win[webpackKey];
+      if (!chunkQueue || typeof chunkQueue.push !== 'function') {
+        runtimeStage = 'webpack-queue-wait';
+        return null;
+      }
+
+      try {
+        win[webpackKey] = win[webpackKey];
+      } catch {}
 
       const randId = Math.floor(Math.random() * 9999999 + 1);
-      win[wpKey].push([[randId], {}, req => {
+      chunkQueue.push([[randId], {}, req => {
         webpackRequire = req;
       }]);
 
-      return webpackRequire;
-    } catch {
-      return null;
+      if (webpackRequire?.m) {
+        runtimeStage = 'webpack-ready';
+        console.info('[Ron | Bloxd Visual Client] Webpack runtime captured');
+        return webpackRequire;
+      }
+    } catch (error) {
+      runtimeError = String(error?.message || error || '');
     }
+
+    return null;
   }
 
   function findModule(text) {
@@ -291,38 +274,41 @@
 
   function findNoa() {
     if (noa?.entities) return noa;
-    if (win.__RON_BLOXD_NOA__?.entities) {
-      noa = win.__RON_BLOXD_NOA__;
-      bloxd = noa.bloxd || null;
-      console.info('[Ron | Bloxd Visual Client] using captured noa');
-      return noa;
-    }
+
+    const req = getWebpackRequire();
+    if (!req?.m) return null;
 
     try {
       const props = findModule('nonBlocksClient:');
-      if (!props) return null;
+      if (!props) {
+        runtimeStage = 'nonBlocksClient-wait';
+        return null;
+      }
 
-      const candidates = Object.values(props);
-      const bloxdPropsCandidate = candidates.find(p =>
-        p && typeof p === 'object' && Object.values(p).some(v => v?.entities && v?.bloxd)
-      ) || candidates.find(p => p && typeof p === 'object');
+      const values = Object.values(props);
+      bloxdProps = values.find(value => value && typeof value === 'object');
 
-      if (!bloxdPropsCandidate) return null;
+      if (!bloxdProps) {
+        runtimeStage = 'bloxd-props-wait';
+        return null;
+      }
 
-      bloxdProps = bloxdPropsCandidate;
+      const candidate = Object.values(bloxdProps).find(value => value?.entities);
 
-      const candidateNoa = Object.values(bloxdPropsCandidate).find(p =>
-        p && typeof p === 'object' && p.entities && p.bloxd
-      ) || Object.values(bloxdPropsCandidate).find(p =>
-        p && typeof p === 'object' && p.entities
-      );
+      if (!candidate) {
+        runtimeStage = 'noa-wait';
+        return null;
+      }
 
-      if (!candidateNoa) return null;
+      noa = candidate;
+      bloxd = candidate.bloxd || null;
+      runtimeStage = 'noa-ready';
 
-      noa = candidateNoa;
-      bloxd = candidateNoa.bloxd || bloxdPropsCandidate.bloxd || null;
+      console.info('[Ron | Bloxd Visual Client] noa runtime found');
       return noa;
-    } catch {
+    } catch (error) {
+      runtimeError = String(error?.message || error || '');
+      runtimeStage = 'noa-error';
       return null;
     }
   }
@@ -330,16 +316,41 @@
   function findRendering(noaObj) {
     try {
       const values = Object.values(noaObj || {});
+
       const indexed = values[12];
       if (indexed && typeof indexed === 'object') {
-        const thin = Object.values(indexed).find(v => v?.thinMeshes);
-        if (thin) return indexed;
+        const holder = Object.values(indexed).find(value => Array.isArray(value?.thinMeshes));
+        if (holder) {
+          runtimeStage = 'renderer-ready';
+          return indexed;
+        }
       }
-      return values.find(v =>
-        v && typeof v === 'object' &&
-        (v.thinMeshes || Object.values(v).some(x => x?.thinMeshes))
-      ) || null;
-    } catch {
+
+      const direct = values.find(value => Array.isArray(value?.thinMeshes));
+      if (direct) {
+        runtimeStage = 'renderer-ready';
+        return direct;
+      }
+
+      const nested = values.find(value =>
+        value &&
+        typeof value === 'object' &&
+        Object.values(value).some(child => Array.isArray(child?.thinMeshes))
+      );
+
+      if (nested) {
+        const holder = Object.values(nested).find(child => Array.isArray(child?.thinMeshes));
+        if (holder) {
+          runtimeStage = 'renderer-ready';
+          return holder;
+        }
+      }
+
+      runtimeStage = 'renderer-wait';
+      return null;
+    } catch (error) {
+      runtimeError = String(error?.message || error || '');
+      runtimeStage = 'renderer-error';
       return null;
     }
   }
@@ -349,18 +360,9 @@
   }
 
   function getLocalId() {
-    const direct = [
-      noa?.playerEntity,
-      noa?.playerId,
-      bloxd?.playerId,
-      1
-    ];
-
-    for (const id of direct) {
-      if (id != null) return id;
-    }
-
-    return 1;
+    const id = 1;
+    lastLocalId = id;
+    return id;
   }
 
   function findLocalEntry() {
@@ -419,7 +421,27 @@
     localMeshes = [];
 
     const thinMeshes = getThinMeshes();
-    for (const entry of thinMeshes) {
+    if (!thinMeshes.length) {
+      runtimeStage = 'thin-mesh-wait';
+      return;
+    }
+
+    const localId = getLocalId();
+    const taggedEntries = thinMeshes.filter(entry => {
+      const ids = [
+        entry?.entityId,
+        entry?.entityID,
+        entry?.playerId,
+        entry?.ownerId,
+        entry?.entity?.id,
+        entry?.entity?.entityId
+      ].filter(value => value != null).map(String);
+      return ids.includes(String(localId));
+    });
+
+    const sourceEntries = taggedEntries.length ? taggedEntries : thinMeshes;
+
+    for (const entry of sourceEntries) {
       const mesh =
         entry?.meshVariations?.__DEFAULT__?.mesh ||
         entry?.meshVariations?.default?.mesh ||
@@ -434,6 +456,8 @@
       lastThinMeshCount = thinMeshes.length;
       console.info('[Ron | Bloxd Visual Client] thinMeshes:', thinMeshes.length);
     }
+
+    if (localMeshes.length) runtimeStage = 'player-model-ready';
   }
 
   function meshPart(mesh) {
@@ -723,34 +747,45 @@
     if (!force && now - lastHookTry < 150) return;
 
     try {
-      if (!noa?.entities) {
-        noa = findNoa();
-      }
+      if (!noa?.entities) noa = findNoa();
 
       hooked = !!noa?.entities;
 
-      if (hooked && !lastDiag) {
-        console.info('[Ron | Bloxd Visual Client] renderer hook active');
-        lastDiag = 'hooked';
-      } else if (!hooked && lastDiag !== 'waiting') {
-        console.info('[Ron | Bloxd Visual Client] waiting for Bloxd game runtime');
-        lastDiag = 'waiting';
+      if (!hooked) {
+        if (lastDiag !== runtimeStage) {
+          console.info('[Ron | Bloxd Visual Client] runtime:', runtimeStage);
+          lastDiag = runtimeStage;
+        }
+        updateStatus();
+        lastHookTry = now;
+        return;
       }
 
-      if (noa) {
-        bloxd = noa.bloxd || bloxd;
-        rendering = findRendering(noa);
-        objectData = findObjectData(noa, rendering);
+      bloxd = noa.bloxd || bloxd;
+      rendering = findRendering(noa);
+      objectData = findObjectData(noa, rendering);
 
-        refreshLocalMeshes();
-        setNameAndNametag();
+      refreshLocalMeshes();
 
-        if (settings.playerEnabled) applyPlayerColors();
-        else restoreMaterials();
-
-        removeCapeIfDisabled();
+      if (rendering) {
+        const thinMeshes = getThinMeshes();
+        if (thinMeshes.length && lastDiag !== 'runtime-ready') {
+          console.info('[Ron | Bloxd Visual Client] renderer hook active');
+          console.info('[Ron | Bloxd Visual Client] local visual mesh candidates:', localMeshes.length);
+          lastDiag = 'runtime-ready';
+        }
       }
-    } catch {}
+
+      setNameAndNametag();
+
+      if (settings.playerEnabled) applyPlayerColors();
+      else restoreMaterials();
+
+      removeCapeIfDisabled();
+    } catch (error) {
+      runtimeError = String(error?.message || error || '');
+      runtimeStage = 'apply-error';
+    }
 
     lastHookTry = now;
     updateStatus();
@@ -1061,8 +1096,10 @@
     statusNode.append(make('span', { className: 'dot ' + (hooked ? 'good' : '') }));
     statusNode.appendChild(document.createTextNode(
       hooked
-        ? 'Bloxd renderer hook found'
-        : 'Waiting for the Bloxd renderer'
+        ? (runtimeStage === 'player-model-ready' || localMeshes.length
+            ? 'Bloxd visual runtime ready'
+            : 'Bloxd renderer hook found')
+        : ('Waiting for Bloxd runtime' + (runtimeStage !== 'waiting' ? ' · ' + runtimeStage : ''))
     ));
   }
 
@@ -1123,8 +1160,7 @@
 
   const captureRetry = setInterval(() => {
     try {
-      installNoaCaptureHook();
-      if (!noa?.entities) applyVisuals();
+if (!noa?.entities) applyVisuals();
       if (noa?.entities && rendering) clearInterval(captureRetry);
     } catch {}
   }, 100);

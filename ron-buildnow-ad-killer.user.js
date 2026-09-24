@@ -208,25 +208,7 @@
         style.id = 'ron-game-ad-cleaner-style';
         const styleSelectors = hosts.bloxd ? bloxdSelectorList : genericSelectorList;
         style.textContent = `
-            ${styleSelectors.join(',\n            ')}
-            .adsbygoogle,
-            [data-ad-slot],
-            [data-ad-client],
-            [data-ad-unit],
-            [data-ad-format],
-            [data-advertisement],
-            [data-ad-container],
-            [data-testid="ad"],
-            [data-testid="advertisement"],
-            [aria-label="advertisement" i],
-            [aria-label="sponsored" i],
-            iframe[src*="doubleclick.net"],
-            iframe[src*="googlesyndication.com"],
-            iframe[src*="googleadservices.com"],
-            iframe[src*="adnxs.com"],
-            iframe[src*="amazon-adsystem.com"],
-            iframe[src*="adsafeprotected.com"],
-            {
+            ${styleSelectors.join(',\\n            ')} {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;

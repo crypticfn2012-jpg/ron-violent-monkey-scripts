@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ron | Bloxd Ad Cleaner
 // @namespace    https://roncool.cc.cd/
-// @version      1.0.0
-// @description  Bloxd.io-only ad cleaner. Does not run on BuildNow.gg, 1v1.LOL or other game sites.
+// @version      1.0.1
+// @description  Deprecated compatibility stub. Bloxd cleaning is now included in Ron | Game Ad Cleaner.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
 // @match        https://*.bloxd.io/*
@@ -15,6 +15,8 @@
 
 (() => {
     'use strict';
+    console.info('[Ron | Bloxd Ad Cleaner] Deprecated — Bloxd cleaning is now included in Ron | Game Ad Cleaner v7.0.0');
+    return;
 
     if (window.__RON_BLOXD_AD_CLEANER__) return;
     window.__RON_BLOXD_AD_CLEANER__ = true;

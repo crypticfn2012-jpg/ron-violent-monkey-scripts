@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      6.1.0
+// @version      6.1.1
 // @description  Removes common ad surfaces and ad overlays from BuildNow.gg, 1v1.LOL, Bloxd.io and supported game portals without touching game canvases or game network requests.
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
@@ -133,9 +133,24 @@
         return false;
     }
 
+    function safeHide(element) {
+        if (!isElement(element) || hidden.has(element) || !looksLikeAd(element)) return;
+        if (hasGameContent(element)) return;
+
+        hidden.add(element);
+        element.style.setProperty('display', 'none', 'important');
+        element.style.setProperty('visibility', 'hidden', 'important');
+        element.style.setProperty('pointer-events', 'none', 'important');
+    }
+
     function safeRemove(element) {
         if (!isElement(element) || removed.has(element) || !looksLikeAd(element)) return;
         if (hasGameContent(element)) return;
+
+        if (hosts.bloxd) {
+            safeHide(element);
+            return;
+        }
 
         removed.add(element);
         element.remove();

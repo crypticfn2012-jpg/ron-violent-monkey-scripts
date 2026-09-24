@@ -1,16 +1,14 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.5.0
-// @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
+// @version      1.6.0
+// @description  Client-side Bloxd visuals: custom name text + colour, nametag, cape, player colours
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
 // @match        https://*.bloxd.io/*
 // @run-at       document-idle
 // @grant        none
 // @license      MIT
-// @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js
-// @downloadURL   https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js
 // ==/UserScript==
 
 (() => {
@@ -20,16 +18,14 @@
   if (win.__RON_BLOXD_VISUAL_CLIENT__) return;
   win.__RON_BLOXD_VISUAL_CLIENT__ = true;
 
-  console.info('[Ron | Bloxd Visual Client] v1.4.0 loaded on ' + location.hostname);
-
-
-  const KEY = 'ron_bloxd_visual_client_v1';
+  const KEY = 'ron_bloxd_visual_client_v16';
   const HOTKEY = 'KeyI';
   const MAX_CAPE_BYTES = 768 * 1024;
   const PARTS = ['head', 'body', 'arms', 'legs', 'shoes'];
 
   const DEFAULTS = {
     nameEnabled: true,
+    nameText: '',                 // NEW: custom display name (empty = keep real name)
     nameColor: '#69ff87',
     nametagEnabled: true,
     nametagColor: '#69ff87',
@@ -57,11 +53,8 @@
       nametagSize: 16,
       nametagWeight: '400',
       playerColors: {
-        head: '#d9a27e',
-        body: '#3a5b3b',
-        arms: '#3a5b3b',
-        legs: '#242824',
-        shoes: '#111111'
+        head: '#d9a27e', body: '#3a5b3b', arms: '#3a5b3b',
+        legs: '#242824', shoes: '#111111'
       }
     },
     'Ron Green': {
@@ -71,11 +64,8 @@
       nametagSize: 17,
       nametagWeight: '800',
       playerColors: {
-        head: '#d9a27e',
-        body: '#2fbf59',
-        arms: '#43db6a',
-        legs: '#1f2c22',
-        shoes: '#0b0f0c'
+        head: '#d9a27e', body: '#2fbf59', arms: '#43db6a',
+        legs: '#1f2c22', shoes: '#0b0f0c'
       }
     },
     Red: {
@@ -85,11 +75,8 @@
       nametagSize: 17,
       nametagWeight: '800',
       playerColors: {
-        head: '#d9a27e',
-        body: '#c83c45',
-        arms: '#e85a61',
-        legs: '#391619',
-        shoes: '#10090a'
+        head: '#d9a27e', body: '#c83c45', arms: '#e85a61',
+        legs: '#391619', shoes: '#10090a'
       }
     },
     Blue: {
@@ -99,11 +86,8 @@
       nametagSize: 17,
       nametagWeight: '800',
       playerColors: {
-        head: '#d9a27e',
-        body: '#3472c7',
-        arms: '#568fe0',
-        legs: '#1a2940',
-        shoes: '#0a0f18'
+        head: '#d9a27e', body: '#3b6fc8', arms: '#5a8ae8',
+        legs: '#162239', shoes: '#090a10'
       }
     },
     Purple: {
@@ -113,11 +97,8 @@
       nametagSize: 17,
       nametagWeight: '800',
       playerColors: {
-        head: '#d9a27e',
-        body: '#7f4dc2',
-        arms: '#9a6be0',
-        legs: '#2a1a3b',
-        shoes: '#100b16'
+        head: '#d9a27e', body: '#7b3bc8', arms: '#9a5ae8',
+        legs: '#221639', shoes: '#0a0910'
       }
     }
   };
@@ -125,11 +106,7 @@
   let settings = loadSettings();
   let noa = null;
   let bloxd = null;
-  let bloxdProps = null;
-  let webpackRequire = null;
   let rendering = null;
-  let objectData = null;
-  let localEntry = null;
   let localMeshes = [];
   let savedMaterials = new Map();
   let savedName = null;
@@ -144,12 +121,12 @@
   let lastDiag = '';
   let lastThinMeshCount = -1;
   let webpackKey = null;
+  let webpackRequire = null;
   let runtimeStage = 'waiting';
-  let runtimeError = '';
   let lastLocalId = null;
 
-  function safeClone(value) {
-    try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
+  function safeClone(v) {
+    try { return JSON.parse(JSON.stringify(v)); } catch { return null; }
   }
 
   function loadSettings() {
@@ -174,10 +151,11 @@
   }
 
   function colorValue(v) {
-    const r = parseInt(v.slice(1, 3), 16) / 255;
-    const g = parseInt(v.slice(3, 5), 16) / 255;
-    const b = parseInt(v.slice(5, 7), 16) / 255;
-    return { r, g, b };
+    return {
+      r: parseInt(v.slice(1, 3), 16) / 255,
+      g: parseInt(v.slice(3, 5), 16) / 255,
+      b: parseInt(v.slice(5, 7), 16) / 255
+    };
   }
 
   function setColorObject(target, hex) {
@@ -188,30 +166,17 @@
         target.set(c.r, c.g, c.b);
         return true;
       }
-      target.r = c.r;
-      target.g = c.g;
-      target.b = c.b;
+      target.r = c.r; target.g = c.g; target.b = c.b;
       return true;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }
 
-  function getRendererScene() {
-    try {
-      const values = Object.values(rendering || {});
-      return values.find(v => v && Array.isArray(v.meshes) && typeof v.getEngine === 'function') || null;
-    } catch {
-      return null;
-    }
-  }
+  // ——— Runtime hooks ———
 
   function getWebpackRequire() {
     if (webpackRequire?.m) return webpackRequire;
-
     try {
       const descriptors = Object.getOwnPropertyDescriptors(win);
-
       if (!webpackKey) {
         webpackKey = Object.keys(descriptors).find(key => {
           const setter = descriptors[key]?.set;
@@ -219,95 +184,56 @@
             Function.prototype.toString.call(setter).includes('++');
         });
       }
-
-      if (!webpackKey) {
-        runtimeStage = 'webpack-key-wait';
-        return null;
-      }
-
-      try {
-        win[webpackKey] = win[webpackKey];
-      } catch {}
-
+      if (!webpackKey) { runtimeStage = 'webpack-key-wait'; return null; }
+      try { win[webpackKey] = win[webpackKey]; } catch {}
       const chunkQueue = win[webpackKey];
       if (!chunkQueue || typeof chunkQueue.push !== 'function') {
         runtimeStage = 'webpack-queue-wait';
         return null;
       }
-
       const randId = Math.floor(Math.random() * 9999999 + 1);
-      chunkQueue.push([[randId], {}, req => {
-        webpackRequire = req;
-      }]);
-
-      if (webpackRequire?.m) {
-        runtimeStage = 'webpack-ready';
-        console.info('[Ron | Bloxd Visual Client] Webpack runtime captured');
-        return webpackRequire;
-      }
-    } catch (error) {
-      runtimeError = String(error?.message || error || '');
+      chunkQueue.push([[randId], {}, req => { webpackRequire = req; }]);
+      if (webpackRequire?.m) runtimeStage = 'webpack-ready';
+      return webpackRequire;
+    } catch {
+      runtimeStage = 'webpack-error';
+      return null;
     }
-
-    return null;
   }
 
   function findModule(text) {
     const req = getWebpackRequire();
     if (!req?.m) return null;
-
     try {
       for (const id in req.m) {
-        const moduleFactory = req.m[id];
-        if (
-          moduleFactory &&
-          typeof moduleFactory.toString === 'function' &&
-          moduleFactory.toString().includes(text)
-        ) {
+        const factory = req.m[id];
+        if (factory && typeof factory.toString === 'function' &&
+            factory.toString().includes(text)) {
           return req(id);
         }
       }
     } catch {}
-
     return null;
   }
 
   function findNoa() {
     if (noa?.entities) return noa;
-
     const req = getWebpackRequire();
     if (!req?.m) return null;
-
     try {
       const props = findModule('nonBlocksClient:');
-      if (!props) {
-        runtimeStage = 'nonBlocksClient-wait';
-        return null;
-      }
-
+      if (!props) { runtimeStage = 'nonBlocksClient-wait'; return null; }
       const values = Object.values(props);
-      bloxdProps = values.find(value => value && typeof value === 'object');
-
-      if (!bloxdProps) {
-        runtimeStage = 'bloxd-props-wait';
-        return null;
-      }
-
-      const candidate = Object.values(bloxdProps).find(value => value?.entities);
-
-      if (!candidate) {
-        runtimeStage = 'noa-wait';
-        return null;
-      }
-
+      const bloxdProps = values.find(v => v && typeof v === 'object');
+      if (!bloxdProps) { runtimeStage = 'bloxd-props-wait'; return null; }
+      const candidate = Object.values(bloxdProps).find(v => v?.entities);
+      if (!candidate) { runtimeStage = 'noa-wait'; return null; }
       noa = candidate;
       bloxd = candidate.bloxd || null;
       runtimeStage = 'noa-ready';
-
-      console.info('[Ron | Bloxd Visual Client] noa runtime found');
+      console.info('[Ron Visual] noa found');
       return noa;
-    } catch (error) {
-      runtimeError = String(error?.message || error || '');
+    } catch (e) {
       runtimeStage = 'noa-error';
       return null;
     }
@@ -316,110 +242,70 @@
   function findRendering(noaObj) {
     try {
       const values = Object.values(noaObj || {});
-
       const indexed = values[12];
       if (indexed && typeof indexed === 'object') {
-        const holder = Object.values(indexed).find(value => Array.isArray(value?.thinMeshes));
-        if (holder) {
-          runtimeStage = 'renderer-ready';
-          return indexed;
-        }
+        const holder = Object.values(indexed).find(v => Array.isArray(v?.thinMeshes));
+        if (holder) { runtimeStage = 'renderer-ready'; return indexed; }
       }
-
-      const direct = values.find(value => Array.isArray(value?.thinMeshes));
-      if (direct) {
-        runtimeStage = 'renderer-ready';
-        return direct;
-      }
-
-      const nested = values.find(value =>
-        value &&
-        typeof value === 'object' &&
-        Object.values(value).some(child => Array.isArray(child?.thinMeshes))
+      const direct = values.find(v => Array.isArray(v?.thinMeshes));
+      if (direct) { runtimeStage = 'renderer-ready'; return direct; }
+      const nested = values.find(v =>
+        v && typeof v === 'object' &&
+        Object.values(v).some(c => Array.isArray(c?.thinMeshes))
       );
-
       if (nested) {
-        const holder = Object.values(nested).find(child => Array.isArray(child?.thinMeshes));
-        if (holder) {
-          runtimeStage = 'renderer-ready';
-          return holder;
-        }
+        const holder = Object.values(nested).find(c => Array.isArray(c?.thinMeshes));
+        if (holder) { runtimeStage = 'renderer-ready'; return holder; }
       }
-
       runtimeStage = 'renderer-wait';
       return null;
-    } catch (error) {
-      runtimeError = String(error?.message || error || '');
+    } catch {
       runtimeStage = 'renderer-error';
       return null;
     }
   }
 
-  function findObjectData(noaObj, renderingObj) {
-    return renderingObj?.objectData || null;
-  }
-
+  // Better local player ID detection
   function getLocalId() {
-    const id = 1;
-    lastLocalId = id;
-    return id;
-  }
-
-  function findLocalEntry() {
-    const id = getLocalId();
     try {
-      if (noa?.bloxd?.entityNames?.[id]) return noa.bloxd.entityNames[id];
-      if (bloxd?.entityNames?.[id]) return bloxd.entityNames[id];
-    } catch {}
-
-    return null;
-  }
-
-  function walkObject(root, visitor, maxDepth = 6, maxNodes = 6000) {
-    const seen = new WeakSet();
-    let count = 0;
-    const visit = (node, depth) => {
-      if (!node || count >= maxNodes || depth > maxDepth) return;
-      if ((typeof node !== 'object' && typeof node !== 'function') || seen.has(node)) return;
-      seen.add(node);
-      count++;
-      try { visitor(node); } catch {}
-      if (depth >= maxDepth) return;
-      for (const key of Object.keys(node)) {
-        if (key === 'scene' || key === '_scene' || key === 'engine' || key === '_engine' || key === 'parent') continue;
-        let child;
-        try { child = node[key]; } catch { continue; }
-        visit(child, depth + 1);
+      if (noa?.playerEntity != null) {
+        lastLocalId = noa.playerEntity;
+        return noa.playerEntity;
       }
-    };
-    visit(root, 0);
-  }
-
-  function isMesh(value) {
-    if (!value || typeof value !== 'object') return false;
-    if (typeof value.dispose !== 'function') return false;
-    if (value.material === undefined && typeof value.getClassName !== 'function') return false;
-    if (typeof value.getClassName === 'function') {
-      try { if (/mesh/i.test(value.getClassName())) return true; } catch {}
-    }
-    return typeof value.name === 'string' && ('material' in value || 'position' in value);
+      if (noa?.entities?._playerEntity != null) {
+        lastLocalId = noa.entities._playerEntity;
+        return noa.entities._playerEntity;
+      }
+      // common fallback used by older builds
+      if (bloxd?.localPlayerId != null) {
+        lastLocalId = bloxd.localPlayerId;
+        return bloxd.localPlayerId;
+      }
+    } catch {}
+    lastLocalId = 1;
+    return 1;
   }
 
   function getThinMeshes() {
     const direct = rendering?.thinMeshes;
     if (Array.isArray(direct)) return direct;
-
     try {
       const found = Object.values(rendering || {}).find(v => Array.isArray(v?.thinMeshes));
       return found?.thinMeshes || [];
-    } catch {
-      return [];
+    } catch { return []; }
+  }
+
+  function isMesh(v) {
+    if (!v || typeof v !== 'object') return false;
+    if (typeof v.dispose !== 'function') return false;
+    if (typeof v.getClassName === 'function') {
+      try { if (/mesh/i.test(v.getClassName())) return true; } catch {}
     }
+    return typeof v.name === 'string' && ('material' in v || 'position' in v);
   }
 
   function refreshLocalMeshes() {
     localMeshes = [];
-
     const thinMeshes = getThinMeshes();
     if (!thinMeshes.length) {
       runtimeStage = 'thin-mesh-wait';
@@ -427,36 +313,28 @@
     }
 
     const localId = getLocalId();
-    const taggedEntries = thinMeshes.filter(entry => {
+    const tagged = thinMeshes.filter(entry => {
       const ids = [
-        entry?.entityId,
-        entry?.entityID,
-        entry?.playerId,
-        entry?.ownerId,
-        entry?.entity?.id,
-        entry?.entity?.entityId
-      ].filter(value => value != null).map(String);
+        entry?.entityId, entry?.entityID, entry?.playerId,
+        entry?.ownerId, entry?.entity?.id, entry?.entity?.entityId
+      ].filter(v => v != null).map(String);
       return ids.includes(String(localId));
     });
 
-    const sourceEntries = taggedEntries.length ? taggedEntries : thinMeshes;
-
-    for (const entry of sourceEntries) {
+    const source = tagged.length ? tagged : thinMeshes;
+    for (const entry of source) {
       const mesh =
         entry?.meshVariations?.__DEFAULT__?.mesh ||
         entry?.meshVariations?.default?.mesh ||
         entry?.mesh ||
         entry?.defaultMesh;
-
-      if (!isMesh(mesh)) continue;
-      if (!localMeshes.includes(mesh)) localMeshes.push(mesh);
+      if (isMesh(mesh) && !localMeshes.includes(mesh)) localMeshes.push(mesh);
     }
 
     if (thinMeshes.length !== lastThinMeshCount) {
       lastThinMeshCount = thinMeshes.length;
-      console.info('[Ron | Bloxd Visual Client] thinMeshes:', thinMeshes.length);
+      console.info('[Ron Visual] thinMeshes:', thinMeshes.length, 'local:', localMeshes.length);
     }
-
     if (localMeshes.length) runtimeStage = 'player-model-ready';
   }
 
@@ -470,15 +348,16 @@
     return null;
   }
 
+  // ——— Materials / player colours ———
+
   function cloneMaterial(mesh) {
     const original = mesh?.material;
     if (!original) return null;
     const existing = savedMaterials.get(mesh);
     if (existing) return existing.active;
-
     try {
       const active = typeof original.clone === 'function'
-        ? original.clone('ron-bloxd-' + String(mesh.name || 'part'))
+        ? original.clone('ron-' + String(mesh.name || 'part'))
         : original;
       savedMaterials.set(mesh, { original, active, cloned: active !== original });
       if (active !== original) mesh.material = active;
@@ -491,26 +370,19 @@
 
   function tintMaterial(material, hex) {
     if (!material || !validHex(hex)) return;
-
     const c = colorValue(hex);
     const babylon = win.BABYLON;
-    const color3 = babylon?.Color3
-      ? new babylon.Color3(c.r, c.g, c.b)
-      : null;
+    const color3 = babylon?.Color3 ? new babylon.Color3(c.r, c.g, c.b) : null;
 
     for (const key of ['diffuseColor', 'albedoColor', 'baseColor']) {
       if (!(key in material)) continue;
       try {
-        if (color3) {
-          material[key] = color3.clone ? color3.clone() : color3;
-        } else if (material[key] && typeof material[key] === 'object') {
-          setColorObject(material[key], hex);
-        }
+        if (color3) material[key] = color3.clone ? color3.clone() : color3;
+        else if (material[key] && typeof material[key] === 'object') setColorObject(material[key], hex);
       } catch {}
     }
-
     try {
-      if ('emissiveColor' in material && material.emissiveColor && typeof material.emissiveColor === 'object') {
+      if (material.emissiveColor && typeof material.emissiveColor === 'object') {
         setColorObject(material.emissiveColor, hex);
       }
     } catch {}
@@ -518,10 +390,8 @@
 
   function restoreMaterials() {
     for (const [mesh, record] of savedMaterials) {
-      try {
-        mesh.material = record.original;
-      } catch {}
-      if (record.cloned && record.active && typeof record.active.dispose === 'function') {
+      try { mesh.material = record.original; } catch {}
+      if (record.cloned && record.active?.dispose) {
         try { record.active.dispose(false, true); } catch {}
       }
     }
@@ -530,28 +400,28 @@
 
   function applyPlayerColors() {
     if (!settings.playerEnabled || !localMeshes.length) return;
-
     for (const mesh of localMeshes) {
       const part = meshPart(mesh);
       if (!part) continue;
-
       const material = cloneMaterial(mesh);
       tintMaterial(material, settings.playerColors[part]);
     }
   }
 
+  // ——— Name + nametag (with custom text) ———
+
   function findNameEntry() {
     const id = getLocalId();
     try {
-      return noa?.bloxd?.entityNames?.[id] || null;
-    } catch {
-      return null;
-    }
+      return noa?.bloxd?.entityNames?.[id] ||
+             bloxd?.entityNames?.[id] ||
+             noa?.bloxd?.entityNames?.[String(id)] ||
+             null;
+    } catch { return null; }
   }
 
   function cloneNameStyle(entry) {
     if (savedName?.entry === entry) return;
-
     savedName = {
       entry,
       style: entry?.style ? { ...entry.style } : undefined,
@@ -563,20 +433,16 @@
 
   function restoreName() {
     if (!savedName?.entry) return;
-
     const entry = savedName.entry;
     try {
       if (savedName.style === undefined) delete entry.style;
       else entry.style = { ...savedName.style };
-
       if (savedName.entityName !== undefined) entry.entityName = savedName.entityName;
       if (savedName.nameColour !== undefined) entry.nameColour = savedName.nameColour;
       else delete entry.nameColour;
-
       if (savedName.nameTagInfo !== undefined) entry.nameTagInfo = safeClone(savedName.nameTagInfo);
       else delete entry.nameTagInfo;
     } catch {}
-
     savedName = null;
   }
 
@@ -584,12 +450,21 @@
     const entry = findNameEntry();
     if (!entry) return;
 
-    if (!settings.nameEnabled && !settings.nametagEnabled) {
+    if (!settings.nameEnabled && !settings.nametagEnabled && !settings.nameText) {
       restoreName();
       return;
     }
 
     cloneNameStyle(entry);
+
+    const displayName = (settings.nameText && settings.nameText.trim())
+      ? settings.nameText.trim()
+      : String(entry.entityName || savedName?.entityName || 'Player');
+
+    // Override the actual name string (client-side only)
+    if (settings.nameText && settings.nameText.trim()) {
+      try { entry.entityName = displayName; } catch {}
+    }
 
     const style = { ...(entry.style || {}) };
 
@@ -608,7 +483,7 @@
         ...current,
         backgroundColor: settings.nametagBackground,
         content: [{
-          str: String(entry.entityName || ''),
+          str: displayName,
           style: {
             color: settings.nametagColor,
             colour: settings.nametagColor,
@@ -633,6 +508,8 @@
     try { entry.style = style; } catch {}
   }
 
+  // ——— Cape ———
+
   function getTextureConstructor(mesh) {
     try {
       const material = mesh?.material;
@@ -644,6 +521,9 @@
       const candidate = scene?.textures?.find(t => t?.constructor);
       if (candidate) return candidate.constructor;
     } catch {}
+    try {
+      if (win.BABYLON?.Texture) return win.BABYLON.Texture;
+    } catch {}
     return null;
   }
 
@@ -654,12 +534,12 @@
       }
     } catch {}
     try {
-      const babylon = win.BABYLON;
-      if (babylon?.Mesh?.CreatePlane) {
-        return (name, size, scene) => babylon.Mesh.CreatePlane(name, size, scene);
+      const B = win.BABYLON;
+      if (B?.MeshBuilder?.CreatePlane) {
+        return (name, size, scene) => B.MeshBuilder.CreatePlane(name, { width: size, height: size }, scene);
       }
-      if (babylon?.MeshBuilder?.CreatePlane) {
-        return (name, size, scene) => babylon.MeshBuilder.CreatePlane(name, { width: size, height: size }, scene);
+      if (B?.Mesh?.CreatePlane) {
+        return (name, size, scene) => B.Mesh.CreatePlane(name, size, scene);
       }
     } catch {}
     return null;
@@ -687,12 +567,10 @@
     const torso = localMeshes.find(m => meshPart(m) === 'body') || localMeshes[0];
     if (!torso) return;
 
-    const scene = torso.getScene?.() || getRendererScene();
+    const scene = torso.getScene?.() || null;
     const createPlane = getPlaneFactory(torso);
-    if (!scene || !createPlane) return;
-
     const Texture = getTextureConstructor(torso);
-    if (!Texture) return;
+    if (!scene || !createPlane || !Texture) return;
 
     try {
       capeMesh = createPlane('ron-bloxd-cape', 1, scene);
@@ -716,11 +594,8 @@
       }
 
       const MaterialCtor = torso.material?.constructor;
-      capeMaterial = MaterialCtor ? new MaterialCtor('ron-bloxd-cape-material', scene) : null;
-      if (!capeMaterial) {
-        disposeCape();
-        return;
-      }
+      capeMaterial = MaterialCtor ? new MaterialCtor('ron-bloxd-cape-mat', scene) : null;
+      if (!capeMaterial) { disposeCape(); return; }
 
       capeMaterial.backFaceCulling = false;
       try { capeMaterial.useAlphaFromDiffuseTexture = true; } catch {}
@@ -742,18 +617,19 @@
     else if (!capeMesh) makeCape();
   }
 
+  // ——— Apply loop ———
+
   function applyVisuals(force = false) {
     const now = Date.now();
     if (!force && now - lastHookTry < 150) return;
 
     try {
       if (!noa?.entities) noa = findNoa();
-
       hooked = !!noa?.entities;
 
       if (!hooked) {
         if (lastDiag !== runtimeStage) {
-          console.info('[Ron | Bloxd Visual Client] runtime:', runtimeStage);
+          console.info('[Ron Visual] runtime:', runtimeStage);
           lastDiag = runtimeStage;
         }
         updateStatus();
@@ -763,18 +639,7 @@
 
       bloxd = noa.bloxd || bloxd;
       rendering = findRendering(noa);
-      objectData = findObjectData(noa, rendering);
-
       refreshLocalMeshes();
-
-      if (rendering) {
-        const thinMeshes = getThinMeshes();
-        if (thinMeshes.length && lastDiag !== 'runtime-ready') {
-          console.info('[Ron | Bloxd Visual Client] renderer hook active');
-          console.info('[Ron | Bloxd Visual Client] local visual mesh candidates:', localMeshes.length);
-          lastDiag = 'runtime-ready';
-        }
-      }
 
       setNameAndNametag();
 
@@ -782,13 +647,54 @@
       else restoreMaterials();
 
       removeCapeIfDisabled();
-    } catch (error) {
-      runtimeError = String(error?.message || error || '');
+    } catch (e) {
       runtimeStage = 'apply-error';
     }
 
     lastHookTry = now;
     updateStatus();
+  }
+
+  // ——— UI ———
+
+  function make(tag, props = {}, text = '') {
+    const node = document.createElement(tag);
+    Object.assign(node, props);
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function field(label, input) {
+    const row = make('div', { className: 'row' });
+    row.append(make('label', {}, label), input);
+    return row;
+  }
+
+  function switchField(label, key) {
+    const button = make('button', {
+      type: 'button',
+      className: 'switch ' + (settings[key] ? 'on' : '')
+    });
+    button.onclick = () => {
+      settings[key] = !settings[key];
+      saveSettings();
+      applyVisuals(true);
+      renderUI();
+    };
+    const row = make('div', { className: 'row' });
+    row.append(make('label', {}, label), button);
+    return row;
+  }
+
+  function colorField(label, key) {
+    const input = make('input', { type: 'color', value: settings[key] || '#ffffff' });
+    input.oninput = () => {
+      settings[key] = input.value;
+      settings.preset = 'Custom';
+      saveSettings();
+      applyVisuals(true);
+    };
+    return field(label, input);
   }
 
   function usePreset(name) {
@@ -809,13 +715,6 @@
     applyVisuals(true);
   }
 
-  function setFeature(key, enabled) {
-    settings[key] = !!enabled;
-    saveSettings();
-    applyVisuals(true);
-    renderUI();
-  }
-
   function resetAll() {
     restoreMaterials();
     restoreName();
@@ -826,82 +725,81 @@
     applyVisuals(true);
   }
 
-  function make(tag, props = {}, text = '') {
-    const node = document.createElement(tag);
-    Object.assign(node, props);
-    if (text) node.textContent = text;
-    return node;
-  }
-
-  function field(label, input) {
-    const row = make('div', { className: 'row' });
-    row.append(make('label', {}, label), input);
-    return row;
-  }
-
-  function switchField(label, key) {
-    const button = make('button', {
-      type: 'button',
-      className: 'switch ' + (settings[key] ? 'on' : '')
-    });
-    button.appendChild(make('span'));
-    button.onclick = () => setFeature(key, !settings[key]);
-    return field(label, button);
-  }
-
-  function colorField(label, key) {
-    const input = make('input', { type: 'color', value: settings[key] });
-    input.oninput = () => {
-      settings[key] = input.value;
-      settings.preset = 'Custom';
-      saveSettings();
-      applyVisuals();
-    };
-    return field(label, input);
+  function updateStatus() {
+    if (!statusNode) return;
+    statusNode.replaceChildren();
+    statusNode.append(make('span', { className: 'dot ' + (hooked ? 'good' : '') }));
+    statusNode.appendChild(document.createTextNode(
+      hooked
+        ? (localMeshes.length ? 'Visual runtime ready' : 'Renderer found · waiting for player model')
+        : ('Waiting for Bloxd · ' + runtimeStage)
+    ));
   }
 
   function buildUI() {
-    if (panel) return;
+    if (shadow) return;
 
-    shadow = document.createElement('div').attachShadow({ mode: 'open' });
-
-    const host = document.createElement('div');
+    const host = make('div');
     host.id = 'ron-bloxd-visual-host';
-    host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;isolation:isolate;';
-    host.appendChild(shadow);
+    Object.assign(host.style, {
+      position: 'fixed', top: '0', left: '0', zIndex: '2147483646',
+      pointerEvents: 'none'
+    });
     document.documentElement.appendChild(host);
+    shadow = host.attachShadow({ mode: 'open' });
 
-    const style = document.createElement('style');
+    const style = make('style');
     style.textContent = `
-      :host{all:initial;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#eef6f1}
-      *,*::before,*::after{box-sizing:border-box}
-      .panel{position:fixed;right:18px;top:18px;width:356px;max-height:calc(100vh - 36px);display:flex;flex-direction:column;background:rgba(9,14,11,.96);border:1px solid #1d2a20;border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.55);pointer-events:auto;color:#eef6f1;overflow:hidden}
-      .head{display:flex;align-items:center;gap:12px;padding:15px 16px;border-bottom:1px solid #1b261e}
-      .head strong{display:block;font-size:15px;letter-spacing:-.02em}.head small{display:block;margin-top:3px;color:#718075;font-size:10px}
-      .grow{flex:1}.close{width:30px;height:30px;border:1px solid #233025;background:#0d140f;color:#aebbb1;border-radius:8px;font-size:17px;cursor:pointer}.close:hover{color:#fff}
-      .body{padding:14px;overflow:auto}.section{padding:0 0 16px;margin:0 0 16px;border-bottom:1px solid #172119}.section:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
-      .title{font-size:10px;text-transform:uppercase;letter-spacing:.11em;color:#7c8b80;margin-bottom:9px}
-      .row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:38px}.row label{font-size:12px;color:#cdd8d0}.row input[type=color]{width:42px;height:26px;padding:2px;border:1px solid #26342a;border-radius:7px;background:#0c120e;cursor:pointer}.row input[type=number],.row input[type=text],.row select{width:118px;height:30px;border:1px solid #26342a;border-radius:7px;background:#0b120d;color:#eef6f1;padding:0 8px;outline:0}
-      .switch{width:42px;height:24px;padding:2px;border:1px solid #29372d;border-radius:20px;background:#121a14;cursor:pointer}.switch span{display:block;width:18px;height:18px;border-radius:50%;background:#657167;transition:.15s}.switch.on{background:#173c22;border-color:#2f6f3e}.switch.on span{transform:translateX(17px);background:#69ff87}
-      .buttons{display:flex;flex-wrap:wrap;gap:7px}.btn{height:30px;padding:0 10px;border:1px solid #26342a;border-radius:7px;background:#0c130e;color:#b7c3bb;font-size:10px;font-weight:800;cursor:pointer}.btn:hover{border-color:#3b6244;color:#fff}.btn.active{background:#16321e;border-color:#3b824c;color:#69ff87}.btn.primary{background:#69ff87;border-color:#69ff87;color:#061008}
-      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}.part{border:1px solid #202c23;background:#0b120d;border-radius:8px;padding:8px}.part span{display:block;font-size:10px;text-transform:capitalize;color:#95a198;margin-bottom:6px}.part-line{display:flex;align-items:center;gap:7px}.part-line input{width:36px;height:24px}.part-line code{font-size:9px;color:#657268}
-      .cape-preview{height:110px;margin-top:8px;border:1px solid #202c23;border-radius:8px;background:#070b08;display:grid;place-items:center;overflow:hidden}.cape-preview img{max-width:100%;max-height:100%;object-fit:contain}
-      .hint{margin-top:7px;color:#66736a;font-size:9px;line-height:1.55}.status{margin-top:10px;padding:9px 10px;border:1px solid #202c23;border-radius:8px;background:#0a100c;color:#839087;font-size:10px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#d2a33a;margin-right:7px}.dot.good{background:#69ff87}
-      .launcher{position:fixed;right:14px;bottom:14px;width:42px;height:42px;border:1px solid #315c3b;border-radius:10px;background:#0a110c;color:#69ff87;font-size:11px;font-weight:900;letter-spacing:.04em;cursor:pointer;pointer-events:auto;box-shadow:0 8px 25px rgba(0,0,0,.4)}
+      *{box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+      .launcher{pointer-events:auto;position:fixed;top:14px;right:14px;z-index:10;
+        border:1px solid #2f6b3d;background:#0d1a12;color:#7dff9a;border-radius:10px;
+        padding:8px 12px;font-weight:700;cursor:pointer;box-shadow:0 8px 25px rgba(0,0,0,.4)}
       .launcher:hover{background:#102117;border-color:#4a8d59;color:#fff}
-      @media(max-width:600px){.panel{right:10px;left:10px;top:10px;width:auto;max-height:calc(100vh - 20px)}}
+      .panel{pointer-events:auto;position:fixed;top:56px;right:14px;width:340px;max-height:calc(100vh - 70px);
+        overflow:auto;background:rgba(10,14,12,.97);border:1px solid #24352a;border-radius:14px;
+        color:#e8f5ec;box-shadow:0 18px 60px rgba(0,0,0,.45)}
+      .head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #24352a}
+      .head strong{display:block;font-size:14px}
+      .head small{color:#8aa694;font-size:11px}
+      .grow{flex:1}
+      .close{background:transparent;border:0;color:#9bb5a5;font-size:20px;cursor:pointer}
+      .body{padding:12px 14px 16px}
+      .section{margin-bottom:14px}
+      .title{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#8aa694;margin-bottom:8px}
+      .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:7px 0}
+      .row label{font-size:13px;color:#cfe3d6}
+      input[type="text"],input[type="number"],input[type="color"],select{
+        width:150px;max-width:55%;background:#121a15;border:1px solid #2a3b31;color:#e8f5ec;
+        border-radius:8px;padding:6px 8px}
+      input[type="color"]{padding:2px;height:32px}
+      .switch{width:42px;height:24px;border-radius:999px;border:1px solid #2a3b31;background:#1a2420;position:relative;cursor:pointer}
+      .switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#8aa694;transition:.15s}
+      .switch.on{background:#1e6b3a;border-color:#2f9b55}
+      .switch.on::after{left:20px;background:#7dff9a}
+      .buttons{display:flex;gap:8px;flex-wrap:wrap}
+      .btn{border:1px solid #2a3b31;background:#152019;color:#e8f5ec;border-radius:8px;padding:7px 10px;cursor:pointer}
+      .btn.primary{background:#1e6b3a;border-color:#2f9b55;color:#fff}
+      .hint{font-size:11px;color:#8aa694;line-height:1.4;margin-top:6px}
+      .cape-preview{margin-top:8px;border:1px solid #2a3b31;border-radius:8px;overflow:hidden;background:#0b100d}
+      .cape-preview img{display:block;width:100%;max-height:120px;object-fit:contain}
+      .status{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#8aa694}
+      .dot{width:8px;height:8px;border-radius:50%;background:#5a6b60}
+      .dot.good{background:#69ff87;box-shadow:0 0 8px #69ff87}
+      .preset-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+      .preset-row .btn{font-size:12px}
+      @media(max-width:600px){.panel{right:10px;left:10px;top:10px;width:auto}}
     `;
     shadow.appendChild(style);
 
-    const launcher = make('button', {
-      className: 'launcher',
-      type: 'button',
-      title: 'Open Ron Bloxd Visual Client'
-    }, 'RON');
-    launcher.onclick = openPanel;
+    const launcher = make('button', { className: 'launcher', type: 'button', title: 'Open visual client' }, 'RON');
+    launcher.onclick = () => {
+      if (!panel) return;
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) applyVisuals(true);
+    };
     shadow.appendChild(launcher);
 
-    panel = make('div', { className: 'panel', hidden: false });
+    panel = make('div', { className: 'panel', hidden: true });
     shadow.appendChild(panel);
     renderUI();
   }
@@ -913,7 +811,7 @@
     const head = make('div', { className: 'head' });
     const title = make('div');
     title.append(make('strong', {}, 'Ron | Bloxd Visual Client'));
-    title.append(make('small', {}, 'Shift + I to open'));
+    title.append(make('small', {}, 'Shift + I · client-side only'));
     head.append(title, make('div', { className: 'grow' }));
     const close = make('button', { className: 'close', type: 'button' }, '×');
     close.onclick = () => { panel.hidden = true; };
@@ -922,6 +820,7 @@
 
     const body = make('div', { className: 'body' });
 
+    // Features
     const features = make('section', { className: 'section' });
     features.append(make('div', { className: 'title' }, 'Features'));
     features.append(switchField('Name colour', 'nameEnabled'));
@@ -930,8 +829,24 @@
     features.append(switchField('Player colours', 'playerEnabled'));
     body.appendChild(features);
 
+    // Name
     const names = make('section', { className: 'section' });
     names.append(make('div', { className: 'title' }, 'Name & nametag'));
+
+    const nameInput = make('input', {
+      type: 'text',
+      value: settings.nameText || '',
+      placeholder: 'Leave empty = real name'
+    });
+    nameInput.oninput = () => {
+      settings.nameText = nameInput.value;
+      settings.preset = 'Custom';
+      saveSettings();
+      applyVisuals(true);
+    };
+    names.append(field('Custom name', nameInput));
+    names.append(make('div', { className: 'hint' }, 'Only you see this name. Others still see your real username.'));
+
     names.append(colorField('Name colour', 'nameColor'));
     names.append(colorField('Nametag colour', 'nametagColor'));
     names.append(colorField('Nametag background', 'nametagBackground'));
@@ -943,85 +858,63 @@
       saveSettings();
       applyVisuals(true);
     };
+    names.append(field('Nametag size', size));
 
     const weight = make('select');
-    ['400','500','600','700','800','900'].forEach(v => weight.appendChild(make('option', { value: v, selected: v === settings.nametagWeight }, v)));
-
-    const sizeRow = make('div', { className: 'row' });
-    sizeRow.append(make('label', {}, 'Size'), size);
-    names.appendChild(sizeRow);
-
-    const weightRow = make('div', { className: 'row' });
+    ['400','500','600','700','800','900'].forEach(v => {
+      weight.appendChild(make('option', { value: v, selected: v === settings.nametagWeight }, v));
+    });
     weight.onchange = () => {
       settings.nametagWeight = weight.value;
       settings.preset = 'Custom';
       saveSettings();
       applyVisuals(true);
     };
-    weightRow.append(make('label', {}, 'Weight'), weight);
-    names.appendChild(weightRow);
-
+    names.append(field('Nametag weight', weight));
     body.appendChild(names);
 
+    // Presets
     const presets = make('section', { className: 'section' });
-    presets.append(make('div', { className: 'title' }, 'Visual presets'));
-    const presetButtons = make('div', { className: 'buttons' });
-    for (const name of Object.keys(PRESETS)) {
-      const b = make('button', {
-        className: 'btn ' + (settings.preset === name ? 'active' : ''),
-        type: 'button'
-      }, name);
+    presets.append(make('div', { className: 'title' }, 'Presets'));
+    const presetRow = make('div', { className: 'preset-row' });
+    Object.keys(PRESETS).forEach(name => {
+      const b = make('button', { className: 'btn', type: 'button' }, name);
       b.onclick = () => usePreset(name);
-      presetButtons.appendChild(b);
-    }
-    const custom = make('button', {
-      className: 'btn ' + (settings.preset === 'Custom' ? 'active' : ''),
-      type: 'button'
-    }, 'Custom');
-    custom.onclick = () => {
-      settings.preset = 'Custom';
-      saveSettings();
-      renderUI();
-    };
-    presetButtons.appendChild(custom);
-    presets.appendChild(presetButtons);
+      presetRow.appendChild(b);
+    });
+    presets.appendChild(presetRow);
     body.appendChild(presets);
 
-    const players = make('section', { className: 'section' });
-    players.append(make('div', { className: 'title' }, 'Player colours'));
-    const partGrid = make('div', { className: 'grid' });
-    for (const part of PARTS) {
-      const card = make('div', { className: 'part' });
-      card.append(make('span', {}, part));
-      const line = make('div', { className: 'part-line' });
-      const input = make('input', { type: 'color', value: settings.playerColors[part] });
+    // Player colours
+    const player = make('section', { className: 'section' });
+    player.append(make('div', { className: 'title' }, 'Player colours'));
+    PARTS.forEach(part => {
+      const input = make('input', { type: 'color', value: settings.playerColors[part] || '#ffffff' });
       input.oninput = () => {
         settings.playerColors[part] = input.value;
+        settings.playerEnabled = true;
         settings.preset = 'Custom';
         saveSettings();
-        applyVisuals();
-        const code = line.querySelector('code');
-        if (code) code.textContent = input.value.toUpperCase();
+        applyVisuals(true);
+        renderUI();
       };
-      line.append(input, make('code', {}, settings.playerColors[part].toUpperCase()));
-      card.appendChild(line);
-      partGrid.appendChild(card);
-    }
-    players.appendChild(partGrid);
-    body.appendChild(players);
+      player.append(field(part[0].toUpperCase() + part.slice(1), input));
+    });
+    body.appendChild(player);
 
+    // Cape
     const cape = make('section', { className: 'section' });
-    cape.append(make('div', { className: 'title' }, 'Custom cape image'));
+    cape.append(make('div', { className: 'title' }, 'Custom cape'));
 
     const capeButtons = make('div', { className: 'buttons' });
-    const choose = make('button', { className: 'btn primary', type: 'button' }, 'Choose image');
-    const file = make('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true });
-    choose.onclick = () => file.click();
-    file.onchange = () => {
-      const selected = file.files?.[0];
+    const fileInput = make('input', { type: 'file', accept: 'image/*', style: 'display:none' });
+    const choose = make('button', { className: 'btn', type: 'button' }, 'Upload image');
+    choose.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+      const selected = fileInput.files?.[0];
       if (!selected) return;
       if (selected.size > MAX_CAPE_BYTES) {
-        alert('Cape image is too large. Keep it under 768 KB.');
+        alert('Image too large (max ~750KB). Compress it first.');
         return;
       }
       const reader = new FileReader();
@@ -1030,6 +923,7 @@
         settings.capeEnabled = true;
         settings.preset = 'Custom';
         saveSettings();
+        disposeCape();
         renderUI();
         applyVisuals(true);
       };
@@ -1044,16 +938,20 @@
       disposeCape();
       renderUI();
     };
-
-    capeButtons.append(choose, clear);
+    capeButtons.append(choose, clear, fileInput);
     cape.appendChild(capeButtons);
 
-    const url = make('input', { type: 'text', value: settings.capeUrl, placeholder: 'https://...' });
+    const url = make('input', {
+      type: 'text',
+      value: settings.capeUrl.startsWith('data:') ? '' : settings.capeUrl,
+      placeholder: 'https://... or upload above'
+    });
     url.onchange = () => {
       settings.capeUrl = url.value.trim();
       settings.capeEnabled = !!settings.capeUrl;
       settings.preset = 'Custom';
       saveSettings();
+      disposeCape();
       renderUI();
       applyVisuals(true);
     };
@@ -1070,9 +968,11 @@
       cape.appendChild(preview);
     }
 
-    cape.append(make('div', { className: 'hint' }, 'Local images are saved in this browser. PNG works best. Remote URLs need to be usable by the game renderer.'));
+    cape.append(make('div', { className: 'hint' },
+      'PNG with transparency works best. Uploaded images stay in this browser only.'));
     body.appendChild(cape);
 
+    // Bottom
     const bottom = make('section', { className: 'section' });
     const buttons = make('div', { className: 'buttons' });
     const reset = make('button', { className: 'btn', type: 'button' }, 'Reset');
@@ -1090,25 +990,6 @@
     updateStatus();
   }
 
-  function updateStatus() {
-    if (!statusNode) return;
-    statusNode.replaceChildren();
-    statusNode.append(make('span', { className: 'dot ' + (hooked ? 'good' : '') }));
-    statusNode.appendChild(document.createTextNode(
-      hooked
-        ? (runtimeStage === 'player-model-ready' || localMeshes.length
-            ? 'Bloxd visual runtime ready'
-            : 'Bloxd renderer hook found')
-        : ('Waiting for Bloxd runtime' + (runtimeStage !== 'waiting' ? ' · ' + runtimeStage : ''))
-    ));
-  }
-
-  function openPanel() {
-    if (!panel) return;
-    panel.hidden = false;
-    applyVisuals(true);
-  }
-
   function installKeys() {
     if (win.__RON_BLOXD_VISUAL_KEYS__) return;
     win.__RON_BLOXD_VISUAL_KEYS__ = true;
@@ -1118,61 +999,42 @@
       const inField = ['INPUT','TEXTAREA','SELECT'].includes(tag) || event.target?.isContentEditable;
 
       if ((event.code === HOTKEY || String(event.key || '').toLowerCase() === 'i') &&
-          event.shiftKey &&
-          !event.ctrlKey &&
-          !event.altKey &&
-          !inField) {
+          event.shiftKey && !event.ctrlKey && !event.altKey && !inField) {
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!panel) buildUI();
-        if (panel.hidden) openPanel();
-        else panel.hidden = true;
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) applyVisuals(true);
         return;
       }
-
       if (event.code === 'Escape' && panel && !panel.hidden && !inField) {
         panel.hidden = true;
       }
     };
-
     document.addEventListener('keydown', handler, true);
     win.addEventListener('keydown', handler, true);
   }
-
-
 
   function startClient() {
     if (!document.documentElement) {
       setTimeout(startClient, 25);
       return;
     }
-
     buildUI();
     installKeys();
-    console.info('[Ron | Bloxd Visual Client] UI installed - press Shift+I or click RON');
-
-    setTimeout(() => applyVisuals(true), 250);
-    setTimeout(() => applyVisuals(true), 1000);
-    setTimeout(() => applyVisuals(true), 2500);
+    console.info('[Ron | Bloxd Visual Client] v1.6.0 — Shift+I or click RON');
+    setTimeout(() => applyVisuals(true), 300);
+    setTimeout(() => applyVisuals(true), 1200);
+    setTimeout(() => applyVisuals(true), 3000);
   }
 
   startClient();
 
-  const captureRetry = setInterval(() => {
-    try {
-      if (!noa?.entities || !rendering || !localMeshes.length) applyVisuals();
-      if (noa?.entities && rendering && localMeshes.length) clearInterval(captureRetry);
-    } catch {}
-  }, 250);
-
-  win.addEventListener('load', () => applyVisuals(true), { once: true });
-
-  const interval = setInterval(() => {
+  setInterval(() => {
     try { applyVisuals(); } catch {}
   }, 500);
 
   win.addEventListener('beforeunload', () => {
-    clearInterval(interval);
     try {
       restoreMaterials();
       restoreName();

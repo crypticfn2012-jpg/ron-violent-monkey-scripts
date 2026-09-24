@@ -1,13 +1,11 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      7.1.0
-// @description  All-in-one game ad cleaner for supported game portals with isolated rules for each site.
+// @version      8.0.0
+// @description  Hybrid game ad cleaner: network hooks, frame-safe filtering and DOM cleanup for supported game portals.
 // @match        https://buildnow.gg/*
 // @match        https://crazygames.com/*
 // @match        https://*.crazygames.com/*
-// @exclude      https://games.crazygames.com/*
-// @exclude      https://*.game-files.crazygames.com/*
 // @match        https://1v1.lol/*
 // @match        https://www.1v1.lol/*
 // @match        https://1v1lolreloaded.com/*
@@ -26,15 +24,11 @@
 (() => {
     'use strict';
 
-    if (window.__RON_GAME_AD_CLEANER__) return;
-    window.__RON_GAME_AD_CLEANER__ = true;
+    if (window.__RON_GAME_AD_CLEANER_V8__) return;
+    window.__RON_GAME_AD_CLEANER_V8__ = true;
 
     const hostname = location.hostname.toLowerCase();
-    const excludedGameRuntime =
-        hostname === 'games.crazygames.com' ||
-        hostname.endsWith('.game-files.crazygames.com');
-
-    if (excludedGameRuntime) return;
+    const isCrazyRuntime = hostname === 'games.crazygames.com' || hostname.endsWith('.game-files.crazygames.com');
 
     const hosts = {
         buildnow: hostname === 'buildnow.gg',
@@ -44,9 +38,143 @@
         bloxd: hostname === 'bloxd.io' || hostname === 'www.bloxd.io' || hostname.endsWith('.bloxd.io')
     };
 
-    if (!Object.values(hosts).some(Boolean)) return;
+    if (!isCrazyRuntime && !Object.values(hosts).some(Boolean)) return;
 
-    console.info('[Ron | Game Ad Cleaner] v7.1.0 active on ' + hostname + (hosts.bloxd ? ' (Bloxd isolated mode)' : ''));
+    const DEBUG = false;
+    const log = (...args) => {
+        if (DEBUG) console.info('[Ron | Game Ad Cleaner]', ...args);
+    };
+
+    // Ad/measurement delivery hosts observed in the supported game stacks.
+    // Only requests made from supported game hosts/frames are intercepted.
+    const blockedAdHosts = new Set([
+        'api.adinplay.com',
+        'adnxs.com',
+        'adsrvr.org',
+        'adsafeprotected.com',
+        'amazon-adsystem.com',
+        'casalemedia.com',
+        'cpmstar.com',
+        'criteo.com',
+        'doubleclick.net',
+        'googleadservices.com',
+        'googlesyndication.com',
+        'imasdk.googleapis.com',
+        'indexww.com',
+        'openx.net',
+        'onetag-sys.com',
+        'pubmatic.com',
+        'rubiconproject.com'
+    ]);
+
+    const blockedPathRules = [
+        /(^|\/)adsbygoogle(?:\.js)?(?:$|[?#])/i,
+        /(^|\/)gpt\.js(?:$|[?#])/i,
+        /(^|\/)cpmstar(?:\.min)?\.js(?:$|[?#])/i,
+        /(^|\/)advert(?:isement|ising)?(?:[-_/]|\.)/i,
+        /(^|\/)ad[-_](?:request|load|serve|server)(?:[-_/]|\.)/i
+    ];
+
+    const firstPartyBlocked = [
+        { test: hosts.oneVOne, rules: [/^https?:\/\/1v1\.lol\/js\/cpmstar(?:\.min)?\.js/i] },
+        { test: hosts.reloaded, rules: [/\/cpmstar(?:\.min)?\.js(?:$|[?#])/i] }
+    ];
+
+    const isBlockedHost = (host) => {
+        const h = host.toLowerCase().replace(/^www\./, '');
+        if (blockedAdHosts.has(h)) return true;
+        for (const entry of blockedAdHosts) {
+            if (h.endsWith('.' + entry)) return true;
+        }
+        return false;
+    };
+
+    function shouldBlockURL(input) {
+        let url;
+        try {
+            url = new URL(typeof input === 'string' ? input : input?.url || input, location.href);
+        } catch {
+            return false;
+        }
+
+        if (!/^https?:$/i.test(url.protocol)) return false;
+        if (isBlockedHost(url.hostname)) return true;
+
+        for (const entry of firstPartyBlocked) {
+            if (!entry.test) continue;
+            if (entry.rules.some(rule => typeof rule === 'function' ? rule(url.href) : rule.test(url.href))) {
+                return true;
+            }
+        }
+
+        if (blockedPathRules.some(rule => rule.test(url.pathname + url.search))) {
+            return hosts.buildnow || hosts.crazygames || hosts.oneVOne || hosts.reloaded || hosts.bloxd || isCrazyRuntime;
+        }
+
+        return false;
+    }
+
+    function installNetworkHooks() {
+        const originalFetch = window.fetch;
+        if (typeof originalFetch === 'function' && !originalFetch.__ronWrapped) {
+            const wrappedFetch = function(input, init) {
+                if (shouldBlockURL(input)) {
+                    log('blocked fetch', typeof input === 'string' ? input : input?.url);
+                    return Promise.reject(new TypeError('Blocked by Ron | Game Ad Cleaner'));
+                }
+                return originalFetch.call(this, input, init);
+            };
+            Object.defineProperty(wrappedFetch, '__ronWrapped', { value: true });
+            window.fetch = wrappedFetch;
+        }
+
+        const XHR = window.XMLHttpRequest;
+        if (XHR && !XHR.prototype.__ronWrapped) {
+            const originalOpen = XHR.prototype.open;
+            const originalSend = XHR.prototype.send;
+
+            XHR.prototype.open = function(method, url) {
+                this.__ronRonURL = String(url || '');
+                return originalOpen.apply(this, arguments);
+            };
+
+            XHR.prototype.send = function(body) {
+                if (shouldBlockURL(this.__ronRonURL)) {
+                    log('blocked XHR', this.__ronRonURL);
+                    try { this.abort(); } catch {}
+                    return;
+                }
+                return originalSend.apply(this, arguments);
+            };
+
+            Object.defineProperty(XHR.prototype, '__ronWrapped', { value: true });
+        }
+
+        if (navigator.sendBeacon && !navigator.sendBeacon.__ronWrapped) {
+            const originalBeacon = navigator.sendBeacon.bind(navigator);
+            const wrappedBeacon = function(url, data) {
+                if (shouldBlockURL(url)) {
+                    log('blocked beacon', url);
+                    return false;
+                }
+                return originalBeacon(url, data);
+            };
+            Object.defineProperty(wrappedBeacon, '__ronWrapped', { value: true });
+            try { navigator.sendBeacon = wrappedBeacon; } catch {}
+        }
+    }
+
+    installNetworkHooks();
+
+    // Never mutate the DOM inside CrazyGames Unity/HTML5 runtime hosts.
+    // The network layer above is still active there.
+    if (isCrazyRuntime) {
+        log('network-only mode on', hostname);
+        return;
+    }
+
+    console.info('[Ron | Game Ad Cleaner] v8.0.0 active on ' + hostname);
+
     const genericSelectorList = [
         'ins.adsbygoogle',
         '.adsbygoogle',
@@ -96,14 +224,11 @@
     ];
 
     const selectorList = hosts.bloxd ? bloxdSelectorList : genericSelectorList;
-
     const selector = selectorList.join(',');
     const adName = /^(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
     const adWord = /(?:^|[-_:.])(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
     const protectedName = /(?:game|unity|webgl|canvas|play|player|content|app|iframe)/i;
-
-    const removed = new WeakSet();
-    const hidden = new WeakSet();
+    const touched = new WeakSet();
 
     function isElement(value) {
         return value instanceof Element;
@@ -111,29 +236,15 @@
 
     function hasGameContent(element) {
         if (!isElement(element)) return false;
-
-        if (
-            element.matches(
-                'canvas, video, audio, [data-game], [data-game-container], [id*="game" i], [class*="game" i], [id*="unity" i], [class*="unity" i], [id*="webgl" i], [class*="webgl" i]'
-            )
-        ) {
+        if (element.matches('canvas,video,audio,[data-game],[data-game-container],[id*="game" i],[class*="game" i],[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i]')) {
             return true;
         }
-
-        return Boolean(
-            element.querySelector(
-                'canvas, [data-game], [data-game-container], [id*="game" i], [class*="game" i], [id*="unity" i], [class*="unity" i], [id*="webgl" i], [class*="webgl" i]'
-            )
-        );
+        return Boolean(element.querySelector('canvas,[data-game],[data-game-container],[id*="unity" i],[class*="unity" i],[id*="webgl" i],[class*="webgl" i]'));
     }
 
     function looksLikeAd(element) {
         if (!isElement(element)) return false;
-
-        if (hosts.bloxd) {
-            return element.matches(selector);
-        }
-
+        if (hosts.bloxd) return element.matches(selector);
         if (element.matches(selector)) return true;
 
         const id = element.id || '';
@@ -141,195 +252,100 @@
         const role = element.getAttribute('role') || '';
         const aria = element.getAttribute('aria-label') || '';
 
-        if (protectedName.test(id) || protectedName.test(className)) {
-            return false;
-        }
-
+        if (protectedName.test(id) || protectedName.test(className)) return false;
         if (adName.test(id) || adName.test(className)) return true;
         if (adWord.test(id) || adWord.test(className)) return true;
-
-        if (/advertisement|sponsored/i.test(role) || /advertisement|sponsored/i.test(aria)) {
-            return true;
-        }
-
+        if (/advertisement|sponsored/i.test(role) || /advertisement|sponsored/i.test(aria)) return true;
         return false;
     }
 
-    function safeHide(element) {
-        if (!isElement(element) || hidden.has(element) || !looksLikeAd(element)) return;
-        if (hasGameContent(element)) return;
-
-        hidden.add(element);
+    function hide(element) {
+        if (!isElement(element) || touched.has(element) || !looksLikeAd(element) || hasGameContent(element)) return;
+        touched.add(element);
         element.style.setProperty('display', 'none', 'important');
         element.style.setProperty('visibility', 'hidden', 'important');
         element.style.setProperty('pointer-events', 'none', 'important');
     }
 
-    function safeRemove(element) {
-        if (!isElement(element) || removed.has(element) || !looksLikeAd(element)) return;
-        if (hasGameContent(element)) return;
-
-        removed.add(element);
-        element.remove();
-    }
-
     function scan(root = document) {
-        if (!root || !root.querySelectorAll) return;
-
-        if (isElement(root)) {
-            safeRemove(root);
-        }
-
-        for (const element of root.querySelectorAll(selector)) {
-            if (hosts.bloxd) safeHide(element);
-            else safeRemove(element);
-        }
-
-        if (!hosts.bloxd) {
-            for (const element of root.querySelectorAll('[id], [class], [role], [aria-label]')) {
-                safeRemove(element);
-            }
-        }
-    }
-
-    function hideKnownAds() {
-        if (!document.documentElement) return;
-
-        for (const element of document.querySelectorAll(selector)) {
-            if (!isElement(element) || hidden.has(element) || hasGameContent(element)) continue;
-
-            hidden.add(element);
-            element.style.setProperty('display', 'none', 'important');
-            element.style.setProperty('visibility', 'hidden', 'important');
-            element.style.setProperty('pointer-events', 'none', 'important');
-        }
+        if (!root?.querySelectorAll) return;
+        if (isElement(root)) hide(root);
+        for (const element of root.querySelectorAll(selector)) hide(element);
+        for (const element of root.querySelectorAll('[id],[class],[role],[aria-label]')) hide(element);
     }
 
     function installStyles() {
         if (document.getElementById('ron-game-ad-cleaner-style')) return;
-
         const style = document.createElement('style');
         style.id = 'ron-game-ad-cleaner-style';
-        const styleSelectors = genericSelectorList;
-        style.textContent = `
-            ${styleSelectors.join(',\\n            ')} {
-                display: none !important;
-                visibility: hidden !important;
-                pointer-events: none !important;
-            }
-        `;
-
+        style.textContent = selectorList.join(',\n') + ' { display:none !important; visibility:hidden !important; pointer-events:none !important; }';
         (document.head || document.documentElement).appendChild(style);
     }
 
-    let cleanQueued = false;
+    function patchCrazyGamesSDK() {
+        if (!hosts.crazygames || window.__RON_CRAZY_AD_PATCHED_V8__) return;
+        const sdk = window.CrazyGames?.SDK?.ad;
+        if (!sdk || typeof sdk.requestAd !== 'function') return;
 
-    function queueClean() {
-        if (cleanQueued) return;
-        cleanQueued = true;
-
-        queueMicrotask(() => {
-            cleanQueued = false;
-            scan();
-            hideKnownAds();
-        });
+        const original = sdk.requestAd;
+        sdk.requestAd = function(type, callbacks = {}) {
+            if (type !== 'midgame') return original.apply(this, arguments);
+            if (typeof callbacks.adStarted === 'function') callbacks.adStarted();
+            queueMicrotask(() => {
+                if (typeof callbacks.adFinished === 'function') callbacks.adFinished();
+            });
+        };
+        window.__RON_CRAZY_AD_PATCHED_V8__ = true;
     }
+
+    let queued = false;
+    const queueScan = () => {
+        if (queued) return;
+        queued = true;
+        queueMicrotask(() => {
+            queued = false;
+            scan();
+            patchCrazyGamesSDK();
+        });
+    };
 
     const observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
+            if (mutation.type === 'attributes') hide(mutation.target);
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    if (hosts.bloxd) safeHide(node);
-                    else safeRemove(node);
+                    hide(node);
                     scan(node);
                 }
             }
-
-            if (mutation.type === 'attributes') {
-                if (hosts.bloxd) safeHide(mutation.target);
-                else safeRemove(mutation.target);
-            }
         }
-
-        queueClean();
+        queueScan();
     });
-
-    function startObserver() {
-        if (!document.documentElement) return false;
-
-        observer.observe(document.documentElement, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['id', 'class', 'style', 'src', 'data-ad-slot', 'data-ad-client', 'aria-label']
-        });
-
-        return true;
-    }
-
-    function bypassCrazyGamesMidgameAds() {
-        if (!hosts.crazygames) return;
-        if (!window.CrazyGames?.SDK?.ad?.requestAd) return;
-        if (window.__RON_CRAZY_AD_PATCHED__) return;
-
-        const ad = window.CrazyGames.SDK.ad;
-        const original = ad.requestAd;
-
-        if (typeof original !== 'function') return;
-
-        ad.requestAd = function(type, callbacks = {}) {
-            if (type !== 'midgame') {
-                return original.apply(this, arguments);
-            }
-
-            if (callbacks && typeof callbacks.adStarted === 'function') {
-                callbacks.adStarted();
-            }
-
-            queueMicrotask(() => {
-                if (callbacks && typeof callbacks.adFinished === 'function') {
-                    callbacks.adFinished();
-                }
-            });
-        };
-
-        window.__RON_CRAZY_AD_PATCHED__ = true;
-    }
 
     function boot() {
         installStyles();
         scan();
-        hideKnownAds();
-        startObserver();
-        bypassCrazyGamesMidgameAds();
+        patchCrazyGamesSDK();
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['id','class','style','src','data-ad-slot','data-ad-client','aria-label']
+        });
     }
 
-    if (document.documentElement) {
-        boot();
-    } else {
-        const bootObserver = new MutationObserver(() => {
+    if (document.documentElement) boot();
+    else {
+        const wait = new MutationObserver(() => {
             if (!document.documentElement) return;
-
-            bootObserver.disconnect();
+            wait.disconnect();
             boot();
         });
-
-        bootObserver.observe(document, {
-            childList: true,
-            subtree: true
-        });
+        wait.observe(document, { childList: true, subtree: true });
     }
-
-    const sdkTimer = setInterval(() => {
-        bypassCrazyGamesMidgameAds();
-
-        if (window.__RON_CRAZY_AD_PATCHED__ || !hosts.crazygames) {
-            clearInterval(sdkTimer);
-        }
-    }, 250);
 
     setInterval(() => {
         scan();
-        hideKnownAds();
-    }, 1500);
+        patchCrazyGamesSDK();
+    }, 2500);
 })();

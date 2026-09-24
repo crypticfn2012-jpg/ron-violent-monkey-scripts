@@ -1,74 +1,113 @@
 // ==UserScript==
 // @name         Ron | Popup Blocker
 // @namespace    https://ron.cool/userscripts
-// @version      1.0.0
-// @description  Built with RonKit 0.6.0.
+// @version      1.1.0
+// @description  Blocks unwanted popups, window.open, and click-jacked popups
 // @match        *://*/*
-// @run-at       document-idle
-// @inject-into  auto
+// @run-at       document-start
 // @grant        none
 // ==/UserScript==
 
-/* ===== RonKit 0.6.0 ===== */
-/* RonKit 0.6.0 — private userscript framework runtime. */
-(function (pageRoot, apiRoot) {
+(function () {
   'use strict';
-  if (pageRoot.Ron && pageRoot.Ron.__RONKIT__) {\n    if (apiRoot && apiRoot !== pageRoot) apiRoot.Ron = pageRoot.Ron;\n    return;\n  }
-  var has=function(n){return typeof apiRoot[n]==='function'};
-  var gm=function(n){return has(n)?apiRoot[n]:null};
-  var noop=function(){};
-  var elOk=function(v){return v instanceof Element};
-  var nodeOk=function(v){return v instanceof Node};
-  var sleep=function(ms){return new Promise(function(r){setTimeout(r,Math.max(0,Number(ms)||0))})};
-  var uid=function(p){return (p||'ron')+'-'+Math.random().toString(36).slice(2,10)};
-  var state={config:{name:'Ron Script',debug:false,storagePrefix:'ronkit',ui:{title:'Ron Tool',side:'right',width:340,top:18,draggable:false},features:{}},menus:new Map(),keys:new Set(),styles:new Map(),custom:new Map()};
-  var safe=function(fn,fallback){try{return fn()}catch(e){if(state.config.debug)console.error('[RonKit]',e);return fallback}};
-  var Ron={__RONKIT__:true,version:'0.6.0',config:state.config};
-  Ron.configure=function(o){o=o||{};if(o.name!=null)state.config.name=String(o.name);if(o.debug!=null)state.config.debug=!!o.debug;if(o.storagePrefix)state.config.storagePrefix=String(o.storagePrefix);if(o.ui&&typeof o.ui==='object')Object.assign(state.config.ui,o.ui);if(o.features&&typeof o.features==='object')state.config.features=o.features;return state.config};
-  Ron.ready=function(fn){if(typeof fn!=='function')return Promise.resolve();if(document.readyState==='loading')return new Promise(function(r){document.addEventListener('DOMContentLoaded',function(){fn();r()},{once:true})});queueMicrotask(fn);return Promise.resolve()};
-  Ron.sleep=sleep; Ron.defer=function(fn,ms){return setTimeout(fn,Number(ms)||0)}; Ron.every=function(fn,ms){var id=setInterval(fn,Number(ms)||0);return function(){clearInterval(id)}};
-  Ron.once=function(k,fn){var set=pageRoot.__RONKIT_ONCE__||(pageRoot.__RONKIT_ONCE__=new Set());if(set.has(k))return false;set.add(k);if(fn)fn();return true};
-  Ron.log={info:function(){console.info.apply(console,['['+state.config.name+']'].concat([].slice.call(arguments)))},warn:function(){console.warn.apply(console,['['+state.config.name+']'].concat([].slice.call(arguments)))},error:function(){console.error.apply(console,['['+state.config.name+']'].concat([].slice.call(arguments)))},debug:function(){if(state.config.debug)console.debug.apply(console,['['+state.config.name+']'].concat([].slice.call(arguments)))}};
-  Ron.util={uid:uid,sleep:sleep,clamp:function(v,a,b){return Math.min(b,Math.max(a,v))},debounce:function(fn,ms){var t;return function(){var a=arguments,c=this;clearTimeout(t);t=setTimeout(function(){fn.apply(c,a)},Number(ms)||150)}},throttle:function(fn,ms){var last=0,t;return function(){var a=arguments,c=this,n=Date.now(),wait=(Number(ms)||150)-(n-last);if(wait<=0){last=n;fn.apply(c,a)}else if(!t){t=setTimeout(function(){t=null;last=Date.now();fn.apply(c,a)},wait)}}},json:function(v,f){try{return JSON.parse(v)}catch(e){return f==null?null:f}},stringify:function(v,s){try{return JSON.stringify(v,null,s==null?2:s)}catch(e){return String(v)}}};
-  Ron.site={get host(){return location.hostname.toLowerCase()},get href(){return location.href},get path(){return location.pathname},get search(){return location.search},get origin(){return location.origin},get hash(){return location.hash},is:function(v){var h=location.hostname.toLowerCase();if(v instanceof RegExp)return v.test(h);var w=String(v).toLowerCase().replace(/^https?:\/\//,'').split('/')[0];return h===w||h.endsWith('.'+w)},pathIs:function(v){return typeof v==='function'?!!v(location.pathname):location.pathname.indexOf(String(v))===0},matches:function(v){return v instanceof RegExp?v.test(location.href):location.href.indexOf(String(v))!==-1},query:function(n,f){return new URL(location.href).searchParams.get(n)==null?(f==null?null:f):new URL(location.href).searchParams.get(n)},queries:function(){return Object.fromEntries(new URL(location.href).searchParams)},navigate:function(u){location.href=String(u)},reload:function(){location.reload()}};
-  Ron.dom={q:function(s,r){return (r||document).querySelector?((r||document).querySelector(s)):null},qa:function(s,r){return (r||document).querySelectorAll?[].slice.call((r||document).querySelectorAll(s)):[]},create:function(t,p,c){return Ron.el(t,p,c)},text:function(t,v){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return null;if(v===undefined)return x.textContent||'';x.textContent=String(v);return x},html:function(t,v){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return null;if(v===undefined)return x.innerHTML;x.innerHTML=String(v);return x},attr:function(t,n,v){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return null;if(v===undefined)return x.getAttribute(n);if(v==null)x.removeAttribute(n);else x.setAttribute(n,String(v));return x},prop:function(t,n,v){var x=typeof t==='string'?Ron.dom.q(t):t;if(!x)return null;if(v===undefined)return x[n];x[n]=v;return x},class:function(t,n,on){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return false;x.classList.toggle(String(n),on===undefined?true:!!on);return true},on:function(t,e,fn,o){var x=typeof t==='string'?Ron.dom.q(t):t;if(!x||!x.addEventListener)return noop;x.addEventListener(e,fn,o);return function(){x.removeEventListener(e,fn,o)}},closest:function(t,s){var x=typeof t==='string'?Ron.dom.q(t):t;return x&&x.closest?x.closest(s):null},wait:function(s,to,r){r=r||document;return new Promise(function(resolve,reject){var f=Ron.dom.q(s,r);if(f)return resolve(f);var root=r===document?document.documentElement:r;if(!root)return reject(new Error('RonKit: no observation root'));var timer,obs=new MutationObserver(function(){var x=Ron.dom.q(s,r);if(!x)return;obs.disconnect();clearTimeout(timer);resolve(x)});obs.observe(root,{childList:true,subtree:true});timer=setTimeout(function(){obs.disconnect();reject(new Error('RonKit: timeout waiting for '+s))},Number(to)||10000)})},waitFor:function(test,to,interval){return new Promise(function(resolve,reject){var start=Date.now();function tick(){var v=safe(test,null);if(v)return resolve(v);if(Date.now()-start>=(Number(to)||10000))return reject(new Error('RonKit: waitFor timed out'));setTimeout(tick,Number(interval)||100)}tick()})},waitForText:function(t,to,r){var w=String(t).toLowerCase();return Ron.dom.waitFor(function(){return [].slice.call((r||document).querySelectorAll('*')).find(function(x){return String(x.textContent||'').toLowerCase().indexOf(w)!==-1})||null},to)},observe:function(root,fn,o){var x=root instanceof Node?root:document.documentElement;if(!x)return noop;var obs=new MutationObserver(fn);obs.observe(x,o||{childList:true,subtree:true});return function(){obs.disconnect()}},observeSelector:function(s,fn,o){var seen=new WeakSet(),scan=function(r){Ron.dom.qa(s,r).forEach(function(x){if(o&&o.once&&seen.has(x))return;seen.add(x);fn(x)})};scan(document);return Ron.dom.observe(document.documentElement,function(ms){ms.forEach(function(m){[].slice.call(m.addedNodes).forEach(function(n){if(n.nodeType===1){if(n.matches&&n.matches(s))fn(n);scan(n)}})})})},hide:function(t){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return false;x.hidden=true;x.style.setProperty('display','none','important');return true},show:function(t){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return false;x.hidden=false;x.style.removeProperty('display');return true},remove:function(t){var x=typeof t==='string'?Ron.dom.q(t):t;if(!elOk(x))return false;x.remove();return true},scroll:function(t,o){var x=typeof t==='string'?Ron.dom.q(t):t;if(x&&x.scrollIntoView)x.scrollIntoView(o||{behavior:'smooth',block:'center'});return !!x},focus:function(t){var x=typeof t==='string'?Ron.dom.q(t):t;if(x&&x.focus)x.focus();return !!x}};
-  Ron.el=function(tag,p,c){var x=document.createElement(tag),k,v,arr=Array.isArray(c)?c:[c];p=p||{};for(k in p){v=p[k];if(k==='style'&&v&&typeof v==='object')Object.assign(x.style,v);else if(k==='dataset'&&v&&typeof v==='object')Object.assign(x.dataset,v);else if(k==='attrs'&&v&&typeof v==='object')Object.keys(v).forEach(function(a){x.setAttribute(a,String(v[a]))});else if(k==='on'&&v&&typeof v==='object')Object.keys(v).forEach(function(a){x.addEventListener(a,v[a])});else if(k in x&&!/^aria-|^data-/.test(k))x[k]=v;else if(v!==false&&v!=null)x.setAttribute(k,String(v))}arr.forEach(function(ch){if(ch==null)return;x.append(nodeOk(ch)?ch:document.createTextNode(String(ch)))});return x};
-  Ron.ui={};
-  Ron.ui.style=function(css,id){id=id||uid('ron-style');var n=document.getElementById(id);if(!n&&gm('GM_addStyle'))n=gm('GM_addStyle')(css);if(!n){n=document.createElement('style');(document.head||document.documentElement).appendChild(n)}n.id=id;n.textContent=css;state.styles.set(id,n);return n};
-  Ron.ui.button=function(label,fn,o){return Ron.el('button',{type:'button',className:(o&&o.className)||'ronkit-button',title:(o&&o.title)||'',disabled:!!(o&&o.disabled),on:{click:function(e){if(fn)fn(e)}}},[label])};
-  Ron.ui.input=function(value,fn,o){o=o||{};var x=Ron.el('input',{type:o.type||'text',placeholder:o.placeholder||''});x.value=value==null?'':value;if(o.min!=null)x.min=o.min;if(o.max!=null)x.max=o.max;if(o.step!=null)x.step=o.step;x.addEventListener('input',function(){if(fn)fn(x.value,x)});return x};
-  Ron.ui.checkbox=function(label,checked,fn){var i=Ron.el('input',{type:'checkbox',checked:!!checked});var r=Ron.ui.row(label,i);i.addEventListener('change',function(){if(fn)fn(i.checked,i)});return r};
-  Ron.ui.select=function(opts,value,fn){var s=Ron.el('select');(opts||[]).forEach(function(item){var o=typeof item==='string'?{label:item,value:item}:item;s.append(new Option(o.label,o.value))});if(value!=null)s.value=value;s.addEventListener('change',function(){if(fn)fn(s.value,s)});return s};
-  Ron.ui.row=function(label,control,o){return Ron.el('div',{className:'ronkit-row '+((o&&o.className)||'')},[Ron.el('span',{className:'ronkit-label'},[label]),control])};
-  Ron.ui.section=function(title,children){var s=Ron.el('section',{className:'ronkit-section'},[Ron.el('h3',{},[title])]);s.append.apply(s,Array.isArray(children)?children:[children]);return s};
-  Ron.ui.toast=function(message,o){o=o||{};Ron.ui.style('.ronkit-toast-wrap{position:fixed;right:18px;bottom:18px;z-index:2147483646;display:grid;gap:8px;pointer-events:none;font:500 14px system-ui}.ronkit-toast{padding:10px 13px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:#101216;color:#fff;box-shadow:0 16px 48px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);transition:.18s}.ronkit-toast.show{opacity:1;transform:none}', 'ronkit-toast-style');var w=document.querySelector('.ronkit-toast-wrap');if(!w){w=Ron.el('div',{className:'ronkit-toast-wrap'});document.body.appendChild(w)}var t=Ron.el('div',{className:'ronkit-toast '+(o.tone||'')},[message]);w.appendChild(t);requestAnimationFrame(function(){t.classList.add('show')});setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove()},180)},Number(o.duration)||2200);return t};
-  Ron.ui.modal=function(title,body,o){o=o||{};var b=Ron.el('div',{className:'ronkit-modal-backdrop'}),m=Ron.el('div',{className:'ronkit-modal'},[Ron.el('h2',{},[title]),typeof body==='string'?Ron.el('div',{},[body]):body]);Ron.ui.style('.ronkit-modal-backdrop{position:fixed;inset:0;z-index:2147483645;display:grid;place-items:center;background:rgba(0,0,0,.55)}.ronkit-modal{width:min(460px,calc(100vw - 32px));padding:18px;border:1px solid #252a33;border-radius:14px;background:#101319;color:#fff;box-shadow:0 24px 90px rgba(0,0,0,.45)}','ronkit-modal-style');var a=Ron.el('div',{className:'ronkit-modal-actions'}),close=function(v){b.remove();if(o.onClose)o.onClose(v)};a.append(Ron.ui.button(o.cancelText||'Close',function(){close(false)}),Ron.ui.button(o.okText||'OK',function(){close(true)}));m.append(a);b.append(m);(document.body||document.documentElement).appendChild(b);return{element:m,close:close}};
-  Ron.ui.panel=function(o){o=o||{};Ron.ui.style('.ronkit-panel{position:fixed;z-index:2147483640;padding:14px;border:1px solid #252a33;border-radius:14px;background:rgba(14,16,20,.97);color:#fff;box-shadow:0 18px 70px rgba(0,0,0,.3);font:500 13px system-ui;max-height:80vh;overflow:auto}.ronkit-panel header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px}.ronkit-panel h2{margin:0;font-size:15px}.ronkit-button{border:1px solid #2b313b;background:#171a20;color:#fff;border-radius:8px;padding:7px 10px;cursor:pointer}.ronkit-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 0}.ronkit-label{color:#b7bdc8}','ronkit-panel-style');var p=Ron.el('div',{className:'ronkit-panel'});p.style.width=(Number(o.width||state.config.ui.width)||340)+'px';p.style.top=(Number(o.top||state.config.ui.top)||18)+'px';p.style[o.side||state.config.ui.side||'right']='18px';var h=Ron.el('header'),title=Ron.el('h2',{},[o.title||state.config.ui.title||state.config.name]);h.append(title,Ron.ui.button('×',function(){p.remove()}));p.append(h);(document.body||document.documentElement).appendChild(p);if(o.draggable||state.config.ui.draggable){h.style.cursor='move';var dragging=false,ox=0,oy=0;h.addEventListener('pointerdown',function(e){dragging=true;ox=e.clientX-p.offsetLeft;oy=e.clientY-p.offsetTop;h.setPointerCapture(e.pointerId)});h.addEventListener('pointermove',function(e){if(!dragging)return;p.style.left=(e.clientX-ox)+'px';p.style.top=(e.clientY-oy)+'px';p.style.right='auto'});h.addEventListener('pointerup',function(){dragging=false})}return p};
-  Ron.store={key:function(k){return state.config.storagePrefix+':'+k},get:async function(k,f){var key=Ron.store.key(k);if(gm('GM_getValue'))return gm('GM_getValue')(key,f);try{var v=localStorage.getItem(key);return v==null?f:JSON.parse(v)}catch(e){return f}},set:async function(k,v){var key=Ron.store.key(k);if(gm('GM_setValue')){gm('GM_setValue')(key,v);return v}localStorage.setItem(key,JSON.stringify(v));return v},delete:async function(k){var key=Ron.store.key(k);if(gm('GM_deleteValue'))return gm('GM_deleteValue')(key);localStorage.removeItem(key)},has:async function(k){return(await Ron.store.get(k,undefined))!==undefined},list:async function(){var p=state.config.storagePrefix+':';if(gm('GM_listValues'))return gm('GM_listValues')().filter(function(k){return k.indexOf(p)===0}).map(function(k){return k.slice(p.length)});return Object.keys(localStorage).filter(function(k){return k.indexOf(p)===0}).map(function(k){return k.slice(p.length)})},clear:async function(){for(var k of await Ron.store.list())await Ron.store.delete(k)},toggle:async function(k,f){var n=!(await Ron.store.get(k,!!f));await Ron.store.set(k,n);return n},watch:function(k,fn){if(!gm('GM_addValueChangeListener'))return noop;var id=gm('GM_addValueChangeListener')(Ron.store.key(k),function(n,o,v,r){fn(v,o,r)});return function(){return gm('GM_removeValueChangeListener')&&gm('GM_removeValueChangeListener')(id)}}};
-  Ron.menu={add:function(n,fn,o){if(!gm('GM_registerMenuCommand'))return null;var id=gm('GM_registerMenuCommand')(n,fn,o||{});state.menus.set(n,id);return id},remove:function(n){var id=state.menus.get(n)||n;if(gm('GM_unregisterMenuCommand'))return gm('GM_unregisterMenuCommand')(id);return false},clear:function(){state.menus.forEach(function(id){if(gm('GM_unregisterMenuCommand'))gm('GM_unregisterMenuCommand')(id)});state.menus.clear()}};
-  Ron.keys={normalize:function(s){return String(s).toLowerCase().replace(/\s+/g,'').split('+').sort().join('+')},bind:function(combo,fn,o){o=o||{};var wanted=Ron.keys.normalize(combo),target=o.target||document,listener=function(e){var p=[];if(e.ctrlKey)p.push('ctrl');if(e.altKey)p.push('alt');if(e.shiftKey)p.push('shift');if(e.metaKey)p.push('meta');p.push(String(e.key||'').toLowerCase());if(Ron.keys.normalize(p.join('+'))!==wanted)return;if(o.prevent!==false)e.preventDefault();if(o.stop)e.stopPropagation();fn(e)};target.addEventListener('keydown',listener,!!o.capture);var off=function(){target.removeEventListener('keydown',listener,!!o.capture)};state.keys.add(off);return off},clear:function(){state.keys.forEach(function(off){off()});state.keys.clear()}};
-  Ron.clip={copy:async function(t,type){t=String(t);if(gm('GM_setClipboard')){gm('GM_setClipboard')(t,type||'text/plain');return true}if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(t);return true}return false}};
-  Ron.request={raw:function(url,o){o=o||{};if(gm('GM_xmlhttpRequest'))return new Promise(function(resolve,reject){var c=gm('GM_xmlhttpRequest')({method:o.method||'GET',url:String(url),headers:o.headers,data:o.data,timeout:o.timeout,responseType:o.responseType||'text',onload:resolve,onerror:reject,ontimeout:function(){reject(new Error('RonKit request timed out'))}});if(o.signal)o.signal.addEventListener('abort',function(){if(c&&c.abort)c.abort()},{once:true})});return fetch(url,o).then(function(r){if(!r.ok)throw new Error(r.status+' '+r.statusText);return r})},get:function(u,o){return Ron.request.raw(u,Object.assign({},o,{method:'GET'}))},post:function(u,d,o){return Ron.request.raw(u,Object.assign({},o,{method:'POST',data:d}))},text:async function(u,o){var r=await Ron.request.get(u,o);return typeof r.text==='function'?r.text():r.responseText},json:async function(u,o){var r=await Ron.request.get(u,o);if(typeof r.json==='function')return r.json();return typeof r.responseText==='string'?JSON.parse(r.responseText):r.response}};
-  Ron.notify=function(title,text,o){o=o||{};if(gm('GM_notification'))return gm('GM_notification')(Object.assign({title:title,text:text},o));return Ron.ui.toast(title+': '+text,{tone:o.tone||'info'})};
-  Ron.tab={open:function(url,o){o=o||{};if(gm('GM_openInTab'))return gm('GM_openInTab')(url,o);return window.open(String(url),'_blank','noopener')}};
-  Ron.download={file:function(d){d=d||{};if(gm('GM_download'))return gm('GM_download')(d);var blob=d.data instanceof Blob?d.data:new Blob([d.data||''],{type:d.type||'application/octet-stream'}),url=d.url||URL.createObjectURL(blob),a=Ron.el('a',{href:url,download:d.name||'download'});a.click();if(!d.url)setTimeout(function(){URL.revokeObjectURL(url)},1000);return a},text:function(n,t,type){return Ron.download.file({name:n,data:t,type:type||'text/plain'})}};
-  Ron.events=(function(){var bus=new EventTarget();return{on:function(n,fn){var h=function(e){fn(e.detail,e)};bus.addEventListener(n,h);return function(){bus.removeEventListener(n,h)}},once:function(n,fn){var off=this.on(n,function(){off();fn.apply(null,arguments)});return off},emit:function(n,d){bus.dispatchEvent(new CustomEvent(n,{detail:d}))}}})();
-  Ron.page={get:function(path,fallback){try{return String(path).split('.').reduce(function(o,k){return o==null?undefined:o[k]},typeof unsafeWindow!=='undefined'?unsafeWindow:pageRoot)??fallback}catch(e){return fallback}},set:function(path,value){var p=String(path).split('.'),o=typeof unsafeWindow!=='undefined'?unsafeWindow:pageRoot;while(p.length>1)o=o[p.shift()];o[p[0]]=value;return value},call:function(path){var args=[].slice.call(arguments,1),p=String(path).split('.'),n=p.pop(),o=typeof unsafeWindow!=='undefined'?unsafeWindow:pageRoot,fn;try{o=p.reduce(function(x,k){return x==null?undefined:x[k]},o);fn=o&&o[n];if(typeof fn!=='function')throw new TypeError(path+' is not a function');return fn.apply(o,args)}catch(e){throw e}}};
-  Ron.resource={text:function(n){return gm('GM_getResourceText')?gm('GM_getResourceText')(n):null},url:function(n){return gm('GM_getResourceURL')?gm('GM_getResourceURL')(n):null}};
-  Ron.url={query:function(n,f){var u=new URL(location.href);var v=u.searchParams.get(n);return v==null?(f==null?null:f):v},all:function(){return Object.fromEntries(new URL(location.href).searchParams)},set:function(n,v){var u=new URL(location.href);u.searchParams.set(n,v);history.replaceState(history.state,'',u);return u.href}};
-  Ron.feature=function(name,factory){if(state.custom.has(name))return state.custom.get(name);if(typeof factory!=='function')throw new TypeError('Ron.feature requires a factory');var x=factory(Ron)||{};state.custom.set(name,x);Ron.features[name]=x;return x};Ron.features={};
-  Ron.run=async function(actions,ctx){ctx=ctx||{};var value;for(var a of (Array.isArray(actions)?actions:[])){if(!a||!a.type)continue;switch(a.type){case 'wait':value=await Ron.dom.wait(a.selector,a.timeout||10000);break;case 'waitText':value=await Ron.dom.waitForText(a.text,a.timeout||10000);break;case 'click':{var c=await Ron.dom.wait(a.selector,a.timeout||10000).catch(function(){return Ron.dom.q(a.selector)});if(c)c.click();value=c;break}case 'hide':value=Ron.dom.hide(a.selector);break;case 'show':value=Ron.dom.show(a.selector);break;case 'remove':value=Ron.dom.remove(a.selector);break;case 'text':value=Ron.dom.text(a.selector,a.value);break;case 'html':value=Ron.dom.html(a.selector,a.value);break;case 'attr':value=Ron.dom.attr(a.selector,a.name,a.value);break;case 'class':value=Ron.dom.class(a.selector,a.name,a.enabled!==false);break;case 'scroll':value=Ron.dom.q(a.selector)?.scrollIntoView({behavior:'smooth',block:'center'});break;case 'scroll':value=Ron.dom.q(a.selector)?.scrollIntoView({behavior:'smooth',block:'center'});break;case 'copyVideoInfo':{var t=document.querySelector('h1.ytd-watch-metadata,yt-formatted-string.ytd-watch-metadata')?.textContent?.trim()||document.title;value=await Ron.clip.copy(t+'\n'+location.href);break;}case 'copyVideoTitle':{var t2=document.querySelector('h1.ytd-watch-metadata,yt-formatted-string.ytd-watch-metadata')?.textContent?.trim()||document.title;value=await Ron.clip.copy(t2);break;}case 'copyVideoUrl':value=await Ron.clip.copy(location.href);break;case 'toast':value=Ron.ui.toast(a.message||'RonKit');break;case 'copy':value=await Ron.clip.copy(a.text||'');break;case 'notify':value=Ron.notify(a.title||state.config.name,a.message||'');break;case 'open':value=Ron.tab.open(a.url,{active:a.active!==false});break;case 'navigate':value=location.href=String(a.url||location.href);break;case 'reload':value=location.reload();break;case 'delay':await sleep(a.ms||0);break;case 'set':value=await Ron.store.set(a.key,a.value);break;case 'toggle':value=await Ron.store.toggle(a.key,a.fallback);break;case 'fetchJSON':value=await Ron.request.json(a.url,{timeout:a.timeout||10000});if(a.saveAs)await Ron.store.set(a.saveAs,value);break;case 'log':Ron.log.info(a.message??value);break;case 'if':if(await Ron.logic.test(a.condition)){value=await Ron.run(a.then,ctx)}else{value=await Ron.run(a.else,ctx)}break}}return value};
-  Ron.logic={test:async function(c){c=c||{};if(c.type==='exists')return!!Ron.dom.q(c.selector);if(c.type==='text')return(String(document.body&&document.body.innerText||'').toLowerCase().indexOf(String(c.value||'').toLowerCase())!==-1);if(c.type==='host')return Ron.site.is(c.value);if(c.type==='path')return Ron.site.pathIs(c.value);if(c.type==='url')return Ron.site.matches(c.value);if(c.type==='stored')return Ron.store.has(c.key);return true}};
-  Ron.debug={get enabled(){return state.config.debug},enable:function(){state.config.debug=true},disable:function(){state.config.debug=false},dump:function(){return{version:Ron.version,host:location.hostname,href:location.href,config:JSON.parse(JSON.stringify(state.config)),api:{GM_getValue:has('GM_getValue'),GM_setValue:has('GM_setValue'),GM_xmlhttpRequest:has('GM_xmlhttpRequest'),GM_registerMenuCommand:has('GM_registerMenuCommand'),GM_setClipboard:has('GM_setClipboard'),GM_notification:has('GM_notification'),unsafeWindow:has('unsafeWindow')}}}};
-  pageRoot.Ron=Ron;
-  if (apiRoot && apiRoot !== pageRoot) apiRoot.Ron=Ron;
-})(typeof unsafeWindow!=='undefined'?unsafeWindow:window, typeof globalThis!=='undefined'?globalThis:window);
 
-const Ron=globalThis.Ron;const __ronVars=Object.create(null);const __ronValue=input=>String(input??"").replace(/\{\{([^}]+)\}\}/g,(_,n)=>String(__ronVars[String(n).trim()]??""));
 
-(async()=>{
-  "use strict";
-Ron.ready(async()=>{
-    Ron.ui.toast("RonKit tool is running");
+  const SHOW_TOAST = true;          
+  const ALLOW_USER_GESTURE = true;  
+  const BLOCK_BLUR = true;          
+
+  let lastUserGesture = 0;
+
+  
+  ['click', 'mousedown', 'keydown', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      lastUserGesture = Date.now();
+    }, true);
   });
+
+  function isUserGesture() {
+    return ALLOW_USER_GESTURE && (Date.now() - lastUserGesture < 800);
+  }
+
+  function toast(msg) {
+    if (!SHOW_TOAST) return;
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '20px',
+      right: '20px',
+      zIndex: 2147483647,
+      background: '#111',
+      color: '#fff',
+      padding: '10px 16px',
+      borderRadius: '8px',
+      font: '14px system-ui',
+      boxShadow: '0 8px 24px rgba(0,0,0,.4)',
+      opacity: '0',
+      transition: 'opacity .2s'
+    });
+    document.documentElement.appendChild(el);
+    requestAnimationFrame(() => el.style.opacity = '1');
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 250);
+    }, 2200);
+  }
+
+
+  const originalOpen = window.open;
+  window.open = function (...args) {
+    if (isUserGesture()) {
+      return originalOpen.apply(this, args);
+    }
+    console.warn('[Popup Blocker] Blocked window.open →', args[0]);
+    toast('Popup blocked');
+    return null;
+  };
+
+
+  Object.defineProperty(window, 'open', {
+    value: window.open,
+    writable: false,
+    configurable: false
+  });
+
+ 
+  const originalReplace = location.replace.bind(location);
+  location.replace = function (url) {
+    if (isUserGesture()) return originalReplace(url);
+    console.warn('[Popup Blocker] Blocked location.replace →', url);
+    toast('Redirect blocked');
+  };
+
+ 
+  if (BLOCK_BLUR) {
+    window.blur = function () { /* noop */ };
+  }
+
+
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[target="_blank"]');
+    if (!a) return;
+
+    if (!isUserGesture()) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.warn('[Popup Blocker] Blocked target=_blank link');
+      toast('Popup link blocked');
+    }
+  }, true);
+
+
+  const originalCreateElement = document.createElement.bind(document);
+  document.createElement = function (tag) {
+    const el = originalCreateElement(tag);
+    if (tag.toLowerCase() === 'iframe') {
+  
+    }
+    return el;
+  };
+
+  console.log('[Ron Popup Blocker] Active');
 })();

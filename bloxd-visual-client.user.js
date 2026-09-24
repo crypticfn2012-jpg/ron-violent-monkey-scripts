@@ -23,7 +23,7 @@
   win.__RON_BLOXD_VISUAL_CLIENT__ = true;
 
   const KEY = 'ron_bloxd_visual_client_v1';
-  const HOTKEY = 'ShiftRight';
+  const HOTKEY = 'KeyI';
   const MAX_CAPE_BYTES = 768 * 1024;
   const PARTS = ['head', 'body', 'arms', 'legs', 'shoes'];
 
@@ -714,7 +714,7 @@
     const head = make('div', { className: 'head' });
     const title = make('div');
     title.append(make('strong', {}, 'Ron | Bloxd Visual Client'));
-    title.append(make('small', {}, 'Right Shift to open'));
+    title.append(make('small', {}, 'Shift + I to open'));
     head.append(title, make('div', { className: 'grow' }));
     const close = make('button', { className: 'close', type: 'button' }, '×');
     close.onclick = () => { panel.hidden = true; };
@@ -910,7 +910,7 @@
 
   function installKeys() {
     win.addEventListener('keydown', event => {
-      if (event.code === HOTKEY && !['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)) {
+      if (event.code === HOTKEY && event.shiftKey && !event.ctrlKey && !event.altKey && !['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName)) {
         event.preventDefault();
         event.stopPropagation();
         panel.hidden ? openPanel() : (panel.hidden = true);
@@ -924,8 +924,21 @@
     GM_registerMenuCommand('Reset Bloxd Visuals', resetAll);
   }
 
-  buildUI();
-  installKeys();
+  function startClient() {
+    if (!document.documentElement) {
+      setTimeout(startClient, 50);
+      return;
+    }
+    buildUI();
+    installKeys();
+    setTimeout(() => applyVisuals(true), 1000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startClient, { once: true });
+  } else {
+    startClient();
+  }
 
   win.addEventListener('load', () => applyVisuals(true), { once: true });
 

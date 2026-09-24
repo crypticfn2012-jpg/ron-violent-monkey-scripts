@@ -15,7 +15,7 @@
     "use strict";
 
     const IMAGE_URL =
-        "https://media.discordapp.net/attachments/1545062188761485342/1545134252507529257/Gemini_Generated_Image_45ervp45ervp45er.png?ex=6a9b09e9&is=6a99b869&hm=8fbe9927a73a1feb53212f892da08d9cba7375da3fa9a6383721da8962bf2d51&=&format=webp&quality=lossless&width=1024&height=538";
+        "https://media.discordapp.net/attachments/1536064823807447139/1548317239361405081/tuf_af.png?ex=6ab6704c&is=6ab51ecc&hm=5d3c09b558efbb72d432051a048c3cd48cf36d37f82f77d94ebca1da3abe4317&=&format=webp&quality=lossless&width=768&height=432";
 
     const DISPLAY_TIME = 8000;
     const FADE_TIME = 650;

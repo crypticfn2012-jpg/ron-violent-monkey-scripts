@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ron | Game Ad Cleaner
 // @namespace    https://ron.cool/
-// @version      6.3.0
-// @description  Removes common ad surfaces and ad overlays from BuildNow.gg, 1v1.LOL, Bloxd.io and supported game portals without touching game canvases or game network requests.
+// @version      7.0.0
+// @description  All-in-one game ad cleaner for BuildNow.gg, 1v1.LOL, CrazyGames and Bloxd.io with site-specific safety rules.
 // @match        https://buildnow.gg/*
 // @match        https://*.buildnow.gg/*
 // @match        https://crazygames.com/*
@@ -30,11 +30,13 @@
         buildnow: hostname === 'buildnow.gg' || hostname.endsWith('.buildnow.gg'),
         crazygames: hostname === 'crazygames.com' || hostname.endsWith('.crazygames.com'),
         oneVOne: hostname === '1v1.lol' || hostname === 'www.1v1.lol',
-        reloaded: hostname === '1v1lolreloaded.com' || hostname === 'www.1v1lolreloaded.com'
+        reloaded: hostname === '1v1lolreloaded.com' || hostname === 'www.1v1lolreloaded.com',
+        bloxd: hostname === 'bloxd.io' || hostname === 'www.bloxd.io' || hostname.endsWith('.bloxd.io')
     };
 
     if (!Object.values(hosts).some(Boolean)) return;
 
+    console.info('[Ron | Game Ad Cleaner] v7.0.0 active on ' + hostname + (hosts.bloxd ? ' (Bloxd isolated mode)' : ''));
     const genericSelectorList = [
         'ins.adsbygoogle',
         '.adsbygoogle',
@@ -63,10 +65,23 @@
         'iframe[src*="googleadservices.com"]',
         'iframe[src*="adnxs.com"]',
         'iframe[src*="amazon-adsystem.com"]',
-        'iframe[src*="adsafeprotected.com"]',
+        'iframe[src*="adsafeprotected.com"]'
     ];
 
-    const selectorList = genericSelectorList;
+    const bloxdSelectorList = [
+        '[id^="bloxd-io_"][id*="leaderboard" i]',
+        '[id^="bloxd-io_"][id*="skyscraper" i]',
+        '[id^="bloxd-io_"][id*="banner" i]',
+        '[id^="bloxd-io_"][id*="rectangle" i]',
+        '[id^="bloxd-io_"][id*="interstitial" i]',
+        '[id^="bloxd-io_"][id*="ad" i]',
+        '[class*="aip-ad" i]',
+        '[class*="adinplay" i]',
+        '[id*="adinplay" i]'
+    ];
+
+    const selectorList = hosts.bloxd ? bloxdSelectorList : genericSelectorList;
+
     const selector = selectorList.join(',');
     const adName = /^(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
     const adWord = /(?:^|[-_:.])(?:ad|ads|advert|advertisement|advertising|sponsor|sponsored)(?:[-_:.]|$)/i;
@@ -99,6 +114,10 @@
 
     function looksLikeAd(element) {
         if (!isElement(element)) return false;
+
+        if (hosts.bloxd) {
+            return element.matches(selector);
+        }
 
         if (element.matches(selector)) return true;
 
@@ -147,11 +166,14 @@
         }
 
         for (const element of root.querySelectorAll(selector)) {
-            safeRemove(element);
+            if (hosts.bloxd) safeHide(element);
+            else safeRemove(element);
         }
 
-        for (const element of root.querySelectorAll('[id], [class], [role], [aria-label]')) {
-            safeRemove(element);
+        if (!hosts.bloxd) {
+            for (const element of root.querySelectorAll('[id], [class], [role], [aria-label]')) {
+                safeRemove(element);
+            }
         }
     }
 
@@ -202,13 +224,15 @@
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    safeRemove(node);
+                    if (hosts.bloxd) safeHide(node);
+                    else safeRemove(node);
                     scan(node);
                 }
             }
 
             if (mutation.type === 'attributes') {
-                safeRemove(mutation.target);
+                if (hosts.bloxd) safeHide(mutation.target);
+                else safeRemove(mutation.target);
             }
         }
 

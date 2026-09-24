@@ -38,23 +38,24 @@ a{color:inherit}
 .card{min-height:235px;padding:18px;border:1px solid var(--line);border-radius:13px;background:var(--panel);display:flex;flex-direction:column;transition:.18s}
 .card:hover{border-color:#315d3a;transform:translateY(-2px)}
 .card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:25px}
-.tag{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#9da89f}
-.version{font-size:10px;color:#5f6962}
+.tag{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--green)}
+.version{font-size:11px;color:var(--muted)}
 .card h3{margin:0;font-size:17px;letter-spacing:-.035em}
 .card p{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.55}
-.meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:auto;margin-bottom:15px}
-.meta span{font-size:9px;color:#7d887f;border:1px solid var(--line);border-radius:5px;padding:4px 6px}
-.card-actions{display:flex;gap:7px}
-.mini{height:34px;flex:1;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:10px;font-weight:800}
-.mini.install{background:var(--green);border-color:var(--green);color:#061008}
-.mini.source{background:#0a0f0b;color:#c3ccc5}
-.empty{display:none;padding:30px;text-align:center;border:1px dashed var(--line);border-radius:12px;color:var(--muted);font-size:12px}
-.setup{margin-top:55px;padding:20px;border:1px solid var(--line);border-radius:13px;background:#0b100c;display:flex;align-items:center;justify-content:space-between;gap:30px}
-.setup h2{margin:0 0 7px;font-size:16px}.setup p{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
-.setup ol{margin:0;padding-left:18px;color:var(--muted);font-size:11px;line-height:1.9;min-width:220px}
-footer{margin-top:60px;padding:28px 0 40px;border-top:1px solid var(--line);display:flex;justify-content:space-between;color:#5e685f;font-size:10px}
-footer a{text-decoration:none}footer a:hover{color:var(--text)}
-@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}}
+.meta{display:flex;gap:8px;margin-top:auto;padding-top:14px;color:var(--muted);font-size:11px}
+.card-actions{display:flex;gap:7px;margin-top:12px}
+.mini{height:32px;padding:0 11px;border-radius:8px;border:1px solid var(--line);display:inline-flex;align-items:center;text-decoration:none;font-size:11px;font-weight:800}
+.install{background:var(--green);border-color:var(--green);color:#061008!important}
+.source{background:#0b100c}
+.empty{display:none;padding:28px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);text-align:center;margin-top:10px}
+.setup{margin:42px 0 28px;padding:22px;border:1px solid var(--line);border-radius:14px;background:var(--panel);display:flex;justify-content:space-between;gap:20px}
+.setup h2{margin:0 0 6px;font-size:18px}
+.setup p{margin:0;color:var(--muted);font-size:13px}
+.setup ol{margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.8}
+footer{display:flex;justify-content:space-between;align-items:center;padding:22px 0 34px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+footer a{text-decoration:none}
+footer a:hover{color:var(--text)}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.wrap{width:calc(100% - 22px)}.nav-links{display:none}.hero{padding:65px 0 52px}.hero h1{font-size:clamp(3rem,17vw,5rem)}.controls{flex-direction:column}.filter{width:100%}.grid{grid-template-columns:1fr}.setup{display:block}.setup ol{margin-top:16px}footer{flex-direction:column;gap:8px}}
 </style>
 </head>
@@ -73,7 +74,7 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
 
 <main id="scripts">
 <section class="section">
-<div class="section-head"><h2>Scripts</h2><span>10 available</span></div>
+<div class="section-head"><h2>Scripts</h2><span>11 available</span></div>
 <div class="controls"><input class="search" id="search" type="search" placeholder="Search..." aria-label="Search scripts"><select class="filter" id="filter" aria-label="Filter scripts"><option value="all">All</option><option value="BuildNow">BuildNow</option><option value="Tools">Tools</option><option value="Everywhere">Everywhere</option><option value="Optimization">Optimization</option></select></div>
 <div class="grid" id="grid">
 
@@ -83,19 +84,21 @@ footer a{text-decoration:none}footer a:hover{color:var(--text)}
 
 <article class="card" data-name="Ron Crosshair" data-category="BuildNow"><div class="card-top"><span class="tag">BuildNow</span><span class="version">Tool</span></div><div><h3>Ron Crosshair</h3><p>Make a custom crosshair with presets, live preview and saved setups.</p></div><div class="meta"><span>BuildNow.GG</span><span>1v1.LOL</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/crosshair.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/crosshair.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
-<article class="card" data-name="Custom Loading Screen" data-category="BuildNow"><div class="card-top"><span class="tag">BuildNow</span><span class="version">Visual</span></div><div><h3>Custom Loading Screen</h3><p>Changes the BuildNow loading screen with a custom look.</p></div><div class="meta"><span>BuildNow.GG</span><span>Loading</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/customloadingscreen.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/customloadingscreen.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+<article class="card" data-name="Custom Loading Screen" data-category="BuildNow"><div class="card-top"><span class="tag">BuildNow</span><span class="version">Tool</span></div><div><h3>Custom Loading Screen</h3><p>Replace the default loading screen with your own image or colour setup.</p></div><div class="meta"><span>BuildNow.GG</span><span>1v1.LOL</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/customloadingscreen.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/customloadingscreen.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
-<article class="card" data-name="Potato Graphics" data-category="Optimization"><div class="card-top"><span class="tag">Optimization</span><span class="version">Low-end</span></div><div><h3>Potato Graphics</h3><p>Reduces visual load for a lighter BuildNow experience.</p></div><div class="meta"><span>BuildNow.GG</span><span>Performance</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/potatobng.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/potatobng.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+<article class="card" data-name="Potato Graphics" data-category="Optimization"><div class="card-top"><span class="tag">Optimization</span><span class="version">Tool</span></div><div><h3>Potato Graphics</h3><p>Lower graphics settings for better performance on weaker devices.</p></div><div class="meta"><span>BuildNow.GG</span><span>Performance</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/potatobng.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/potatobng.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
-<article class="card" data-name="Ron ClipTools" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">Utility</span></div><div><h3>Ron ClipTools</h3><p>Small browser utilities for clipping and capturing.</p></div><div class="meta"><span>Browser</span><span>Clips</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-cliptools.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron-cliptools.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+<article class="card" data-name="Ron ClipTools" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">Tool</span></div><div><h3>Ron ClipTools</h3><p>Quick copy helpers and clip utilities for supported sites.</p></div><div class="meta"><span>Tools</span><span>Clipboard</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-cliptools.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron-cliptools.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
-<article class="card" data-name="Ron.cool Everywhere" data-category="Everywhere"><div class="card-top"><span class="tag">Everywhere</span><span class="version">Toolkit</span></div><div><h3>Ron.cool Everywhere</h3><p>Shortcuts and useful tools that work across the web.</p></div><div class="meta"><span>All sites</span><span>Toolkit</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron.cool.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron.cool.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+<article class="card" data-name="Ron.cool Everywhere" data-category="Everywhere"><div class="card-top"><span class="tag">Everywhere</span><span class="version">Tool</span></div><div><h3>Ron.cool Everywhere</h3><p>Site-wide Ron helpers and utilities that work across many pages.</p></div><div class="meta"><span>Everywhere</span><span>Utilities</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron.cool.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron.cool.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
 <article class="card" data-name="Ron Game Launcher" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">v1.2</span></div><div><h3>Ron Game Launcher</h3><p>Press F2 from any site to open a quick browser game launcher.</p></div><div class="meta"><span>F2</span><span>22 Games</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-game-launcher.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron-game-launcher.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
 <article class="card" data-name="CS2 YouTube" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">v4.0</span></div><div><h3>CS2 YouTube</h3><p>Turns YouTube thumbnails into the same CS2 thumbnail. Toggle with Shift+I.</p></div><div class="meta"><span>YouTube</span><span>Shift+I</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/cs2-youtube.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/cs2-youtube.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
-<article class="card" data-name="Ron Bloxd Visual Client" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">v1.3</span></div><div><h3>Ron Bloxd Visual Client</h3><p>Local Bloxd visual customisation with name colours, nametags, capes, player colours and presets.</p></div><div class="meta"><span>Bloxd.io</span><span>Shift + I</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/bloxd-visual-client.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+<article class="card" data-name="Popup Blocker" data-category="Everywhere"><div class="card-top"><span class="tag">Everywhere</span><span class="version">v1.1</span></div><div><h3>Popup Blocker</h3><p>Blocks unwanted popups, window.open calls, and click-jacked popup links across all sites.</p></div><div class="meta"><span>All sites</span><span>Auto</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/popup-blocker.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/popup-blocker.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
+
+<article class="card" data-name="Bloxd Ad Cleaner" data-category="Tools"><div class="card-top"><span class="tag">Tools</span><span class="version">v1.0</span></div><div><h3>Bloxd Ad Cleaner</h3><p>Removes common ad surfaces and overlays on Bloxd.io. (Also covered by Game Ad Cleaner.)</p></div><div class="meta"><span>Bloxd.io</span><span>Auto</span></div><div class="card-actions"><a class="mini install" href="https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/ron-bloxd-ad-cleaner.user.js" target="_blank" rel="noreferrer">Install</a><a class="mini source" href="https://github.com/crypticfn2012-jpg/ron-violent-monkey-scripts/blob/main/ron-bloxd-ad-cleaner.user.js" target="_blank" rel="noreferrer">Source</a></div></article>
 
 </div>
 <div class="empty" id="empty">No scripts found.</div>

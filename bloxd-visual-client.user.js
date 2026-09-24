@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Ron | Bloxd Visual Client
 // @namespace    https://roncool.cc.cd/
-// @version      1.4.0
+// @version      1.5.0
 // @description  Local Bloxd visual customization with custom names, nametags, capes, player colours and presets.
 // @match        https://bloxd.io/*
 // @match        https://www.bloxd.io/*
 // @match        https://*.bloxd.io/*
-// @run-at       document-start
+// @run-at       document-idle
 // @grant        none
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/crypticfn2012-jpg/ron-violent-monkey-scripts/main/bloxd-visual-client.user.js
@@ -901,7 +901,7 @@
     launcher.onclick = openPanel;
     shadow.appendChild(launcher);
 
-    panel = make('div', { className: 'panel', hidden: true });
+    panel = make('div', { className: 'panel', hidden: false });
     shadow.appendChild(panel);
     renderUI();
   }

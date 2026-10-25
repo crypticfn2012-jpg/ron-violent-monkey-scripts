@@ -40,7 +40,14 @@
     ["LOLBeans", "https://lolbeans.io/", "Party"],
     ["BattleDudes", "https://battledudes.io/", "Shooter"],
     ["Ev.io", "https://ev.io/", "Shooter"],
-    ["Clutcher.io", "https://clutcher.io/", "Shooter"]
+    ["Clutcher.io", "https://clutcher.io/", "Shooter"],
+    ["StackShift", "https://crypticfn2012-jpg.github.io/StackShift/", "Arcade"],
+    ["PixelRoyale", "https://crypticfn2012-jpg.github.io/PixelRoyale/", "Battle Royale"],
+    ["Stickman Showdown", "https://crypticfn2012-jpg.github.io/StickmanPixelForge/", "Action"],
+    ["KeyPress", "https://crypticfn2012-jpg.github.io/KeyPress/", "Arcade"],
+    ["CalcClicker", "https://crypticfn2012-jpg.github.io/CalcClicker/", "Idle"],
+    ["FuryFire", "https://crypticfn2012-jpg.github.io/FuryFire/", "Shooter"],
+    ["Rocket Royale", "https://crypticfn2012-jpg.github.io/RocketRoyale/", "Battle Royale"]
   ];
 
   const esc = value => String(value).replace(/[&<>"']/g, c => ({
